@@ -1,0 +1,14 @@
+{
+    "id": "{04CF5A0C-FDCB-60A1-7CD6-A10E4ABD3E8B}",
+    "name": "TilVisu Heating Curve",
+    "type": 3,
+    "vendor": "",
+    "aliases": [
+        "TileVisualisierung Heizkurve"
+    ],
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "TVHC",
+    "url": "https://github.com/da8ter/TileVisu-Heating-Curve.git"
+}
