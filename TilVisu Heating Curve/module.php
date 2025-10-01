@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-class TileVisuHeatingcurve extends IPSModule
+class TilVisuHeatingCurve extends IPSModule
 {
     public function Create()
     {
