@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<style>
+  .tvhc { font-family: Roboto, sans-serif; color: var(--content-color, #eee); }
+  .row { display:flex; align-items:center; justify-content:space-between; margin:6px 0; }
+  .label { opacity: .8; }
+  .ctrl { display:grid; grid-auto-flow: column; grid-auto-columns: max-content; align-items:center; column-gap:24px; }
+  /* Each group has 4 columns: label | minus | value | plus */
+  .grp { display:grid; grid-template-columns: max-content 28px 64px 28px; align-items:center; column-gap:8px; }
+  .grp > .label { width:36px; text-align:right; opacity:.8; }
+  .val { width:64px; text-align:center; font-weight:600; font-variant-numeric: tabular-nums; }
+  button { width:28px; height:28px; color: var(--accent-color, #eee); cursor:pointer; background: transparent; border: none; appearance: none; -webkit-appearance: none; padding: 0; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
+  .status { margin-top:10px; font-size: 12px; opacity:.9; }
+  .mini { margin-top:8px; height:200px; }
+  canvas { width:100%; height:100%; display:block; background: transparent; }
+</style>
+<div class="tvhc">
+  <div class="status" id="status"></div>
+  <div class="mini">
+    <canvas id="chart"></canvas>
+  </div>
+  <div class="row">
+    <div class="label" data-i18n="Vorlauf">Vorlauf</div>
+    <div class="ctrl">
+      <div class="grp">
+        <div class="label">Min</div>
+        <button data-ident="MinVL" data-delta="-1">−</button>
+        <div class="val" id="val-MinVL">--</div>
+        <button data-ident="MinVL" data-delta="+1">+</button>
+      </div>
+      <div class="grp">
+        <div class="label">Max</div>
+        <button data-ident="MaxVL" data-delta="-1">−</button>
+        <div class="val" id="val-MaxVL">--</div>
+        <button data-ident="MaxVL" data-delta="+1">+</button>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="label" data-i18n="Aussentemp">Außentemp</div>
+    <div class="ctrl">
+      <div class="grp">
+        <div class="label">Min</div>
+        <button data-ident="MinAT" data-delta="-1">−</button>
+        <div class="val" id="val-MinAT">--</div>
+        <button data-ident="MinAT" data-delta="+1">+</button>
+      </div>
+      <div class="grp">
+        <div class="label">Max</div>
+        <button data-ident="MaxAT" data-delta="-1">−</button>
+        <div class="val" id="val-MaxAT">--</div>
+        <button data-ident="MaxAT" data-delta="+1">+</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="label" data-i18n="Plateau">Plateau</div>
+    <div class="ctrl">
+      <div class="grp">
+        <div class="label">Start</div>
+        <button data-ident="StartAT" data-delta="-1">−</button>
+        <div class="val" id="val-StartAT">--</div>
+        <button data-ident="StartAT" data-delta="+1">+</button>
+      </div>
+      <div class="grp">
+        <div class="label">Ende</div>
+        <button data-ident="EndAT" data-delta="-1">−</button>
+        <div class="val" id="val-EndAT">--</div>
+        <button data-ident="EndAT" data-delta="+1">+</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+(function(){
+  const $ = (id)=>document.getElementById(id);
+
+  function fmt(v, unit){
+    if (v === null || v === undefined) return '--';
+    return (Math.round(v*2)/2).toFixed(1) + unit;
+  }
+
+  function drawChart(p){
+    const canvas = document.getElementById('chart');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = Math.max(160, rect.width || 160);
+    const cssH = Math.max(80, rect.height || 80);
+    const needResize = canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr);
+    if (needResize) {
+      canvas.width = Math.round(cssW * dpr);
+      canvas.height = Math.round(cssH * dpr);
+    }
+    const ctx = canvas.getContext('2d');
+    // Reset transform, clear full pixel buffer, then scale to CSS pixels
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Colors from CSS variables (read from nearest container for reliability)
+    const container = canvas.closest('.tvhc') || document.documentElement;
+    const css = getComputedStyle(container);
+    let accentColor = (css.getPropertyValue('--accent-color') || '').trim() || '#6cf';
+    let contentColor = (css.getPropertyValue('--content-color') || '').trim() || '#eee';
+    let curveColor = (css.getPropertyValue('--curve-color') || '').trim() || '#fc6';
+    let pointColor = (css.getPropertyValue('--point-color') || '').trim() || '#2c7dd3';
+    let markerColor = (css.getPropertyValue('--marker-color') || '').trim() || '#ffd54f';
+    let curveLeftColor = (css.getPropertyValue('--curve-left-color') || '').trim() || '#ffb300'; // orange
+    let curveRightColor = (css.getPropertyValue('--curve-right-color') || '').trim() || '#e53935'; // red
+    // Ensure visible distinction if curve and accent are identical or too similar
+    const parseRGB = (c)=>{
+      if (!c) return null;
+      const s = c.toLowerCase().trim();
+      if (s.startsWith('#')){
+        const h = s.replace('#','');
+        if (h.length === 3){
+          const r = parseInt(h[0]+h[0],16), g = parseInt(h[1]+h[1],16), b = parseInt(h[2]+h[2],16);
+          return {r,g,b};
+        } else if (h.length === 6){
+          const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+          return {r,g,b};
+        }
+        return null;
+      } else if (s.startsWith('rgb')){
+        const m = s.match(/rgba?\(([^)]+)\)/);
+        if (!m) return null;
+        const parts = m[1].split(',').map(t=>parseFloat(t.trim()));
+        if (parts.length >= 3) return {r:parts[0], g:parts[1], b:parts[2]};
+        return null;
+      }
+      return null;
+    };
+    const ac = parseRGB(accentColor), cc = parseRGB(curveColor);
+    if (ac && cc){
+      const dd = Math.abs(ac.r-cc.r) + Math.abs(ac.g-cc.g) + Math.abs(ac.b-cc.b);
+      if (dd < 30){ // too similar
+        curveColor = '#ffb300';
+      }
+    } else if (curveColor && accentColor && curveColor.toLowerCase() === accentColor.toLowerCase()) {
+      curveColor = '#ffb300';
+    }
+    // Ensure point color is distinct from curve and accent
+    const pc = parseRGB(pointColor), cc2 = parseRGB(curveColor), ac2 = parseRGB(accentColor);
+    const tooClose = (a,b)=> a && b && (Math.abs(a.r-b.r)+Math.abs(a.g-b.g)+Math.abs(a.b-b.b) < 30);
+    if (tooClose(pc, cc2) || tooClose(pc, ac2)) {
+      pointColor = '#1e88e5';
+    }
+    // Ensure marker color is distinct from curve and accent
+    const mc = parseRGB(markerColor);
+    if (tooClose(mc, cc2) || tooClose(mc, ac2)) {
+      markerColor = '#ffcc80';
+    }
+
+    // Chart area with gutters for labels (labels outside the plotted area)
+    const padL = 40, padR = 10, padT = 30, padB = 30;
+    const W = cssW - padL - padR;
+    const H = cssH - padT - padB;
+    if (W <= 0 || H <= 0) return;
+
+    const atMin = p.MinAT, atMax = p.MaxAT;            // dynamic X axis (Außentemperatur)
+    const vlMinProp = p.MinVorlauf, vlMaxProp = p.MaxVorlauf; // properties for curve endpoints
+    let startAT = (typeof p.StartAT === 'number') ? p.StartAT : atMax;
+    let endAT = (typeof p.EndAT === 'number') ? p.EndAT : atMin;
+    const vlAxisMin = 0, vlAxisMax = 50;               // fixed Y axis (Vorlauf)
+    const atSpan = atMax - atMin;
+    const vlAxisSpan = vlAxisMax - vlAxisMin;
+
+    // Clamp helper and clamped Vorlauf endpoints for drawing (with safe fallback)
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+    const toNum = (v, fb) => (typeof v === 'number' && isFinite(v) ? v : fb);
+    const vlMin = clamp(toNum(vlMinProp, vlAxisMin), vlAxisMin, vlAxisMax);
+    const vlMax = clamp(toNum(vlMaxProp, vlAxisMax), vlAxisMin, vlAxisMax);
+
+    const mapX = (at) => {
+      if (!isFinite(atSpan) || atSpan === 0) return padL;
+      const t = (at - atMin) / atSpan; // 0 at MinAT, 1 at MaxAT
+      return padL + (1 - t) * W;      // invert so warm (MaxAT) is left
+    };
+    const mapY = (vl) => {
+      if (!isFinite(vlAxisSpan) || vlAxisSpan === 0) return padT + H;
+      const t = (vl - vlAxisMin) / vlAxisSpan; // 0 at axis min (bottom), 1 at axis max (top)
+      return padT + (1 - t) * H;
+    };
+
+    // Axes
+    ctx.strokeStyle = accentColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(padL, padT);
+    ctx.lineTo(padL, padT + H);
+    ctx.lineTo(padL + W, padT + H);
+    ctx.stroke();
+
+    // Tick helper
+    function niceStep(range, targetTicks){
+      if (!isFinite(range) || range <= 0) return 1;
+      const raw = range / targetTicks;
+      const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+      const base = raw / pow;
+      let nice;
+      if (base < 1.5) nice = 1;
+      else if (base < 3) nice = 2;
+      else if (base < 7) nice = 5;
+      else nice = 10;
+      return nice * pow;
+    }
+    function drawYTicks(){
+      const step = niceStep(vlAxisSpan, 4);
+      const start = Math.ceil(vlAxisMin / step) * step;
+      ctx.fillStyle = contentColor;
+      ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      const labelGap = 10;
+      for (let v = start; v <= vlAxisMax + 1e-6; v += step){
+        const y = mapY(v);
+        ctx.strokeStyle = accentColor;
+        ctx.beginPath();
+        // draw tick outward (to the left) into the label gutter
+        ctx.moveTo(padL - 3, y);
+        ctx.lineTo(padL, y);
+        ctx.stroke();
+        // place label in the left gutter
+        ctx.fillText(v.toFixed(0) + '°C', padL - labelGap, y);
+      }
+    }
+    function drawXTicks(){
+      const step = niceStep(atSpan, 4);
+      const start = Math.ceil(atMin / step) * step;
+      ctx.fillStyle = contentColor;
+      ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.textAlign = 'center';
+      // place labels below the bottom axis into the bottom gutter
+      ctx.textBaseline = 'top';
+      const labelGap = 10;
+      for (let a = start; a <= atMax + 1e-6; a += step){
+        const x = mapX(a);
+        ctx.strokeStyle = accentColor;
+        ctx.beginPath();
+        // draw tick outward (downwards) into the bottom gutter
+        ctx.moveTo(x, padT + H);
+        ctx.lineTo(x, padT + H + 3);
+        ctx.stroke();
+        ctx.fillText(a.toFixed(0) + '°C', x, padT + H + labelGap);
+      }
+    }
+    drawYTicks();
+    drawXTicks();
+
+    // Heating curve: left plateau (MaxAT..StartAT) ->slope (StartAT..EndAT) -> right plateau (EndAT..MinAT)
+    // Clamp plateau bounds into range and ensure order: endAT <= startAT
+    startAT = Math.max(atMin, Math.min(atMax, startAT));
+    endAT = Math.max(atMin, Math.min(atMax, endAT));
+    if (endAT > startAT) { const t = endAT; endAT = startAT; startAT = t; }
+
+    // Heating curve: left plateau (MaxAT..StartAT) -> slope (StartAT..EndAT) -> right plateau (EndAT..MinAT)
+    const xLeft = mapX(atMax);     // warm extreme
+    const xStart = mapX(startAT);
+    const xEnd = mapX(endAT);
+    const xRight = mapX(atMin);    // cold extreme
+    const yWarm = mapY(vlMin); // VL at warm side (clamped)
+    const yCold = mapY(vlMax); // VL at cold side (clamped)
+
+    // Gradient from left (orange) to right (red)
+    const grad = ctx.createLinearGradient(xLeft, 0, xRight, 0);
+    grad.addColorStop(0, curveLeftColor);
+    grad.addColorStop(1, curveRightColor);
+    ctx.strokeStyle = grad;
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    // left plateau
+    ctx.moveTo(xLeft, yWarm);
+    ctx.lineTo(xStart, yWarm);
+    // rising/falling segment
+    ctx.lineTo(xEnd, yCold);
+    // right plateau
+    ctx.lineTo(xRight, yCold);
+    ctx.stroke();
+
+    // Blue control points (schematic style)
+    function dot(x, y){
+      ctx.fillStyle = pointColor;
+      ctx.strokeStyle = 'rgba(0,0,0,.25)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    dot(xLeft, yWarm);
+    dot(xStart, yWarm);
+    dot(xEnd, yCold);
+    dot(xRight, yCold);
+
+    // Current AT marker (snap to drawn curve)
+    if (typeof p.AT === 'number' && isFinite(p.AT)){
+      const cx = Math.max(padL, Math.min(padL + W, mapX(p.AT)));
+      // piecewise: warm plateau -> slope -> cold plateau
+      let vlAtAT;
+      if (p.AT >= startAT) {
+        vlAtAT = vlMin;
+      } else if (p.AT <= endAT) {
+        vlAtAT = vlMax;
+      } else {
+        const t = (p.AT - endAT) / (startAT - endAT); // 0 at endAT (cold), 1 at startAT (warm)
+        vlAtAT = vlMax + t * (vlMin - vlMax);
+      }
+      const vlAtATClamped = clamp(vlAtAT, vlAxisMin, vlAxisMax);
+      const cy = Math.max(padT, Math.min(padT + H, mapY(vlAtATClamped)));
+      ctx.setLineDash([4,3]);
+      ctx.strokeStyle = 'rgba(252, 198, 102, 1)';
+      ctx.beginPath();
+      ctx.moveTo(cx, padT);
+      ctx.lineTo(cx, padT + H);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#fc6';
+      ctx.strokeStyle = 'rgba(0,0,0,.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  function setVals(p){
+    const clamp = (v, min, max) => (typeof v === 'number' ? Math.max(min, Math.min(max, v)) : v);
+    const VL_MIN = 0, VL_MAX = 50;
+
+    const minVLDisp = clamp(p.MinVorlauf, VL_MIN, VL_MAX);
+    const maxVLDisp = clamp(p.MaxVorlauf, VL_MIN, VL_MAX);
+
+    $('val-MinVL').textContent = fmt(minVLDisp, ' °C');
+    $('val-MaxVL').textContent = fmt(maxVLDisp, ' °C');
+    $('val-MinAT').textContent = fmt(p.MinAT, ' °C');
+    $('val-MaxAT').textContent = fmt(p.MaxAT, ' °C');
+    if (document.getElementById('val-StartAT')) {
+      const sAT = (typeof p.StartAT === 'number') ? p.StartAT : p.MaxAT;
+      $('val-StartAT').textContent = fmt(clamp(sAT, p.MinAT, p.MaxAT), ' °C');
+    }
+    if (document.getElementById('val-EndAT')) {
+      const eAT = (typeof p.EndAT === 'number') ? p.EndAT : p.MinAT;
+      $('val-EndAT').textContent = fmt(clamp(eAT, p.MinAT, p.MaxAT), ' °C');
+    }
+    const status = [];
+    const atDisp = clamp(p.AT, p.MinAT, p.MaxAT);
+    const vlDisp = clamp(p.VL, VL_MIN, VL_MAX);
+    status.push((typeof translate === 'function' ? translate('Außen aktuell') : 'Außen aktuell')+': '+fmt(atDisp,' °C'));
+    status.push((typeof translate === 'function' ? translate('Soll-Vorlauf') : 'Soll-Vorlauf')+': '+fmt(vlDisp,' °C'));
+    $('status').textContent = status.join('   ·   ');
+    drawChart(p);
+  }
+
+  // Button wiring
+  document.querySelectorAll('button[data-ident]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const ident = btn.getAttribute('data-ident');
+      const delta = parseFloat(btn.getAttribute('data-delta'));
+      if (typeof requestAction === 'function') {
+        requestAction(ident, delta);
+      }
+    });
+  });
+
+  // HTML-SDK entry point for live updates
+  window.handleMessage = function(payload){
+    try {
+      const p = (typeof payload === 'string') ? JSON.parse(payload) : payload;
+      setVals(p);
+    } catch (e) {
+      console.error('handleMessage parse error', e);
+    }
+  };
+
+  // No initial payload injection here; PHP will push via UpdateVisualizationValue
+})();
+</script>

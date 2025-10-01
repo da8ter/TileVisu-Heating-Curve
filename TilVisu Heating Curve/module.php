@@ -12,6 +12,8 @@ class TilVisuHeatingCurve extends IPSModule
         $this->RegisterPropertyFloat('MaxVorlauf', 55.0);
         $this->RegisterPropertyFloat('MinAT', -10.0);
         $this->RegisterPropertyFloat('MaxAT', 15.0);
+        $this->RegisterPropertyFloat('StartAT', 10.0);
+        $this->RegisterPropertyFloat('EndAT', -5.0);
         $this->RegisterPropertyInteger('Var_Aussentemperatur', 0);
         $this->RegisterPropertyInteger('Var_SollVorlauf', 0);
 
@@ -20,7 +22,6 @@ class TilVisuHeatingCurve extends IPSModule
 
         // Enable HTML-SDK Tile visualization
         if (method_exists($this, 'SetVisualizationType')) {
-            // 1 = Tile (HTML-SDK). If your IP-Symcon defines constants, they will be used by the runtime.
             @$this->SetVisualizationType(1);
         }
     }
@@ -33,6 +34,7 @@ class TilVisuHeatingCurve extends IPSModule
         $lastAT = $this->ReadAttributeInteger('LastATVar');
         if ($lastAT > 0) {
             // Unsubscribe from previous variable VM_UPDATE
+            $this->UnregisterMessage($lastAT, VM_UPDATE);
             @$this->UnregisterMessage($lastAT, VM_UPDATE);
         }
 
@@ -41,6 +43,8 @@ class TilVisuHeatingCurve extends IPSModule
         $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
         $minAT = (float)$this->ReadPropertyFloat('MinAT');
         $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
+        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
+        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
         $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
 
@@ -55,6 +59,11 @@ class TilVisuHeatingCurve extends IPSModule
         }
         if ($varAT === 0 || $varVL === 0) {
             $this->SendDebug('Validation', 'Aussentemperatur and SollVorlauf variables must be set', 0);
+            $valid = false;
+        }
+        // Ensure plateau boundaries are within AT range and ordered: minAT <= endAT <= startAT <= maxAT
+        if (!($minAT <= $endAT && $endAT <= $startAT && $startAT <= $maxAT)) {
+            $this->SendDebug('Validation', 'Plateau AT bounds invalid (require MinAT <= EndAT <= StartAT <= MaxAT)', 0);
             $valid = false;
         }
 
@@ -72,15 +81,17 @@ class TilVisuHeatingCurve extends IPSModule
 
     public function Destroy()
     {
-        // Clean up
-        $lastAT = $this->ReadAttributeInteger('LastATVar');
-        if ($lastAT > 0) {
-            @$this->UnregisterMessage($lastAT, VM_UPDATE);
+        // Clean up (only if kernel is ready; InstanceInterface may be unavailable during shutdown)
+        if (function_exists('IPS_GetKernelRunlevel') && defined('KR_READY') && IPS_GetKernelRunlevel() == KR_READY) {
+            $lastAT = @$this->ReadAttributeInteger('LastATVar');
+            if ($lastAT > 0) {
+                @$this->UnregisterMessage($lastAT, VM_UPDATE);
+            }
         }
         parent::Destroy();
     }
 
-    // Handle visualization actions from the HTML tile (idents: MinVL, MaxVL, MinAT, MaxAT)
+    // Handle visualization actions from the HTML tile (idents: MinVL, MaxVL, MinAT, MaxAT, StartAT, EndAT)
     public function RequestAction($Ident, $Value)
     {
         // Value is expected to be a float delta (e.g., +0.5 / -0.5)
@@ -90,6 +101,8 @@ class TilVisuHeatingCurve extends IPSModule
         $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
         $minAT = (float)$this->ReadPropertyFloat('MinAT');
         $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
+        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
+        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
 
         switch ($Ident) {
             case 'MinVL':
@@ -103,6 +116,12 @@ class TilVisuHeatingCurve extends IPSModule
                 break;
             case 'MaxAT':
                 $maxAT = round(($maxAT + $delta) * 2) / 2.0;
+                break;
+            case 'StartAT':
+                $startAT = round(($startAT + $delta) * 2) / 2.0;
+                break;
+            case 'EndAT':
+                $endAT = round(($endAT + $delta) * 2) / 2.0;
                 break;
             default:
                 throw new Exception('Unknown Ident: ' . $Ident);
@@ -124,12 +143,46 @@ class TilVisuHeatingCurve extends IPSModule
                 $minAT = $maxAT - 0.5;
             }
         }
+        // Ensure plateau order: minAT <= endAT <= startAT <= maxAT
+        if ($endAT < $minAT) $endAT = $minAT;
+        if ($startAT > $maxAT) $startAT = $maxAT;
+        if ($endAT > $startAT) {
+            if ($Ident === 'EndAT') {
+                $startAT = $endAT;
+            } else {
+                $endAT = $startAT;
+            }
+        }
 
         // Persist new properties
         IPS_SetProperty($this->InstanceID, 'MinVorlauf', $minVL);
         IPS_SetProperty($this->InstanceID, 'MaxVorlauf', $maxVL);
         IPS_SetProperty($this->InstanceID, 'MinAT', $minAT);
         IPS_SetProperty($this->InstanceID, 'MaxAT', $maxAT);
+        IPS_SetProperty($this->InstanceID, 'StartAT', $startAT);
+        IPS_SetProperty($this->InstanceID, 'EndAT', $endAT);
+        // Push immediate visualization update with the new values (optimistic update)
+        $varATId = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
+        $atNow = null;
+        if ($varATId > 0 && IPS_VariableExists($varATId)) {
+            $atNow = GetValueFloat($varATId);
+        }
+        $vlNow = null;
+        if ($atNow !== null) {
+            $vlNow = $this->CalculateVorlauf((float)$atNow, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
+        }
+        if (method_exists($this, 'UpdateVisualizationValue')) {
+            @$this->UpdateVisualizationValue(json_encode([
+                'MinVorlauf' => $minVL,
+                'MaxVorlauf' => $maxVL,
+                'MinAT' => $minAT,
+                'MaxAT' => $maxAT,
+                'StartAT' => $startAT,
+                'EndAT' => $endAT,
+                'AT' => $atNow,
+                'VL' => $vlNow
+            ]));
+        }
         IPS_ApplyChanges($this->InstanceID);
     }
 
@@ -148,6 +201,8 @@ class TilVisuHeatingCurve extends IPSModule
         $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
         $minAT = (float)$this->ReadPropertyFloat('MinAT');
         $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
+        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
+        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
         $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
 
@@ -158,7 +213,7 @@ class TilVisuHeatingCurve extends IPSModule
 
         $vl = null;
         if ($configValid && $at !== null && $varVL > 0) {
-            $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT);
+            $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
             $this->WriteTargetIfChanged($varVL, $vl);
         }
 
@@ -168,6 +223,8 @@ class TilVisuHeatingCurve extends IPSModule
             'MaxVorlauf' => $maxVL,
             'MinAT' => $minAT,
             'MaxAT' => $maxAT,
+            'StartAT' => $startAT,
+            'EndAT' => $endAT,
             'AT' => $at,
             'VL' => $vl
         ];
@@ -199,15 +256,33 @@ class TilVisuHeatingCurve extends IPSModule
         }
     }
 
-    private function CalculateVorlauf(float $at, float $minVL, float $maxVL, float $minAT, float $maxAT): float
+    private function CalculateVorlauf(float $at, float $minVL, float $maxVL, float $minAT, float $maxAT, ?float $startAT = null, ?float $endAT = null): float
     {
-        // ratio = (AT - MaxAT) / (MinAT - MaxAT)   // 0..1
+        // Fallback if no AT span
         if ($minAT === $maxAT) {
-            return $minVL; // Fallback
+            return $minVL;
         }
-        $ratio = ($at - $maxAT) / ($minAT - $maxAT);
-        // Clamp 0..1 for the valid range, but we allow extrapolation via clamping later on VL
-        $vl = $minVL + $ratio * ($maxVL - $minVL);
+
+        // If breakpoints are provided, use piecewise mapping with plateaus
+        if ($startAT !== null && $endAT !== null) {
+            // Ensure ordering: endAT <= startAT
+            if ($endAT > $startAT) {
+                $tmp = $endAT; $endAT = $startAT; $startAT = $tmp;
+            }
+            if ($at >= $startAT) {
+                $vl = $minVL;
+            } elseif ($at <= $endAT) {
+                $vl = $maxVL;
+            } else {
+                $t = ($at - $endAT) / ($startAT - $endAT); // 0 at endAT, 1 at startAT
+                $vl = $maxVL + $t * ($minVL - $maxVL);
+            }
+        } else {
+            // Linear mapping without plateaus
+            $ratio = ($at - $maxAT) / ($minAT - $maxAT);
+            $vl = $minVL + $ratio * ($maxVL - $minVL);
+        }
+
         // Clamp to [minVL, maxVL]
         if ($vl < $minVL) {
             $vl = $minVL;
@@ -225,11 +300,13 @@ class TilVisuHeatingCurve extends IPSModule
         $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
         $minAT = (float)$this->ReadPropertyFloat('MinAT');
         $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
+        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
+        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
         $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $at = ($varAT > 0 && IPS_VariableExists($varAT)) ? GetValueFloat($varAT) : null;
         $vl = null;
         if ($at !== null) {
-            $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT);
+            $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
         }
 
         $payload = json_encode([
@@ -237,11 +314,23 @@ class TilVisuHeatingCurve extends IPSModule
             'MaxVorlauf' => $maxVL,
             'MinAT' => $minAT,
             'MaxAT' => $maxAT,
+            'StartAT' => $startAT,
+            'EndAT' => $endAT,
             'AT' => $at,
             'VL' => $vl
         ]);
 
-        $html = <<<HTML
+        $templatePath = __DIR__ . '/module.html';
+        $html = @file_get_contents($templatePath);
+        if ($html !== false) {
+            if (method_exists($this, 'UpdateVisualizationValue')) {
+                @$this->UpdateVisualizationValue($payload);
+            }
+            $html .= "\n<script>window.handleMessage && window.handleMessage(" . $payload . ");</script>";
+            return $html;
+        }
+
+        $html = <<<'HTML'
 <!DOCTYPE html>
 <meta charset="utf-8" />
 <style>

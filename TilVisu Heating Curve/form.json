@@ -23,8 +23,8 @@
     }
   ],
   "status": [
-    { "code": 101, "icon": "", "caption": "Wird erstellt" },
-    { "code": 102, "icon": "", "caption": "Aktiv" },
-    { "code": 104, "icon": "", "caption": "Fehlerhafte Konfiguration" }
+    { "code": 101, "icon": "inactive", "caption": "Wird erstellt" },
+    { "code": 102, "icon": "active", "caption": "Aktiv" },
+    { "code": 104, "icon": "error", "caption": "Fehlerhafte Konfiguration" }
   ]
 }
