@@ -1,0 +1,11 @@
+{
+  "id": "{56F1D4E2-3C1B-4A7E-9112-41D5AE9144B8}",
+  "name": "TileVisu Heatingcurve",
+  "author": "Cascade",
+  "url": "https://symcon.de",
+  "compatibility": {
+    "version": "7.0"
+  },
+  "version": "1.0",
+  "build": 1
+}
