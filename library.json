@@ -1,11 +1,12 @@
 {
-  "id": "{56F1D4E2-3C1B-4A7E-9112-41D5AE9144B8}",
-  "name": "TileVisu Heatingcurve",
-  "author": "Cascade",
-  "url": "https://symcon.de",
-  "compatibility": {
-    "version": "7.0"
-  },
-  "version": "1.0",
-  "build": 1
+    "id": "{3632B4CA-046C-6318-5BC9-55D541B5A8D6}",
+    "name": "TilVisu Heating Curve",
+    "author": "Stephan Sprick",
+    "url": "https://github.com/da8ter/TileVisu-Heating-Curve.git",
+    "compatibility": {
+        "version": "7.1"
+    },
+    "version": "1.0",
+    "build": 1,
+    "date": 20251001
 }
