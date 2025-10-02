@@ -208,7 +208,7 @@ class TilVisuHeatingCurve extends IPSModule
 
         $at = null;
         if ($varAT > 0 && IPS_VariableExists($varAT)) {
-            $at = GetValueFloat($varAT);
+            $at = GetValue($varAT);
         }
 
         $vl = null;
