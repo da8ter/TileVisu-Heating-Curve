@@ -165,7 +165,7 @@ class TilVisuHeatingCurve extends IPSModule
         $varATId = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $atNow = null;
         if ($varATId > 0 && IPS_VariableExists($varATId)) {
-            $atNow = GetValueFloat($varATId);
+            $atNow = GetValue($varATId);
         }
         $vlNow = null;
         if ($atNow !== null) {
