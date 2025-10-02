@@ -303,7 +303,7 @@ class TilVisuHeatingCurve extends IPSModule
         $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
         $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
         $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
-        $at = ($varAT > 0 && IPS_VariableExists($varAT)) ? GetValueFloat($varAT) : null;
+        $at = ($varAT > 0 && IPS_VariableExists($varAT)) ? GetValue($varAT) : null;
         $vl = null;
         if ($at !== null) {
             $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
