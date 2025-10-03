@@ -114,6 +114,13 @@ class TilVisuHeatingCurve extends IPSModule
         // Value is expected to be a float delta (e.g., +0.5 / -0.5)
         $delta = (float)$Value;
 
+        // Initial handshake from frontend to request current payload after HTML has loaded
+        if ($Ident === 'Init') {
+            $this->SendDebug('RequestAction', 'Init received -> push current state', 0);
+            $this->RecalculateAndPush(true);
+            return;
+        }
+
         // Read current runtime values from attributes
         $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
         $maxVL = $this->ReadAttributeFloat('RT_MaxVorlauf');
@@ -289,21 +296,25 @@ class TilVisuHeatingCurve extends IPSModule
 
         // Prefer RequestAction if an action is available on the variable; fallback to SetValue
         $varInfo = IPS_GetVariable($varID);
-        $custom = $varInfo['VariableCustomAction'] ?? 0;
-        $action = $varInfo['VariableAction'] ?? 0;
-        $hasAction = ($custom > 0) || ($action > 0);
+        $custom = isset($varInfo['VariableCustomAction']) ? (int)$varInfo['VariableCustomAction'] : 0;
+        $action = isset($varInfo['VariableAction']) ? (int)$varInfo['VariableAction'] : 0;
+        $actionID = $custom > 0 ? $custom : $action;
+        $hasValidAction = ($actionID > 0) && (IPS_ScriptExists($actionID) || IPS_InstanceExists($actionID));
 
         $ok = false;
-        if ($hasAction) {
+        if ($hasValidAction) {
             $this->SendDebug('WriteTarget', 'Using RequestAction for VarID=' . $varID, 0);
-            try {
-                RequestAction($varID, $value);
+            // Suppress expected warning if the action is not valid and verify via readback
+            @RequestAction($varID, $value);
+            $after = GetValue($varID);
+            if ((is_float($after) || is_int($after)) && abs((float)$after - $value) <= 0.001) {
                 $ok = true;
-            } catch (\Throwable $e) {
-                $ok = false;
-                $this->SendDebug('WriteTarget', 'RequestAction exception: ' . $e->getMessage(), 0);
+                $this->SendDebug('WriteTarget', 'RequestAction SUCCESS (verified by readback)', 0);
+            } else {
+                $this->SendDebug('WriteTarget', 'RequestAction did not apply value (will fallback)', 0);
             }
-            $this->SendDebug('WriteTarget', 'RequestAction ' . ($ok ? 'SUCCESS' : 'FAILED'), 0);
+        } else {
+            $this->SendDebug('WriteTarget', 'No valid action target for VarID=' . $varID . ' (using SetValue)', 0);
         }
 
         if (!$ok) {
@@ -387,130 +398,10 @@ class TilVisuHeatingCurve extends IPSModule
             if (method_exists($this, 'UpdateVisualizationValue')) {
                 @$this->UpdateVisualizationValue($payload);
             }
-            $html .= "\n<script>window.handleMessage && window.handleMessage(" . $payload . ");</script>";
             return $html;
         }
-
-        $html = <<<'HTML'
-<!DOCTYPE html>
-<meta charset="utf-8" />
-<style>
-  .tvhc { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #eee; background:#222; padding: 10px; border-radius: 8px; }
-  .row { display:flex; align-items:center; justify-content:space-between; margin:6px 0; }
-  .label { opacity: .8; }
-  .ctrl { display:flex; align-items:center; gap:8px; }
-  button { width:28px; height:28px; border-radius:6px; border:1px solid #555; background:#333; color:#eee; cursor:pointer; }
-  button:hover { background:#3a3a3a; }
-  .val { min-width:64px; text-align:center; font-weight:600; }
-  .status { margin-top:10px; font-size: 12px; opacity:.9; }
-  .mini { margin-top:8px; height:36px; }
-  svg { width:100%; height:36px; }
-</style>
-<div class="tvhc">
-  <div class="row">
-    <div class="label" data-i18n="MinVorlauf">Min Vorlauf</div>
-    <div class="ctrl">
-      <button data-ident="MinVL" data-delta="-0.5">−</button>
-      <div class="val" id="val-MinVL">--</div>
-      <button data-ident="MinVL" data-delta="+0.5">+</button>
-    </div>
-  </div>
-  <div class="row">
-    <div class="label" data-i18n="MaxVorlauf">Max Vorlauf</div>
-    <div class="ctrl">
-      <button data-ident="MaxVL" data-delta="-0.5">−</button>
-      <div class="val" id="val-MaxVL">--</div>
-      <button data-ident="MaxVL" data-delta="+0.5">+</button>
-    </div>
-  </div>
-  <div class="row">
-    <div class="label" data-i18n="MinAT">Min Außentemp</div>
-    <div class="ctrl">
-      <button data-ident="MinAT" data-delta="-0.5">−</button>
-      <div class="val" id="val-MinAT">--</div>
-      <button data-ident="MinAT" data-delta="+0.5">+</button>
-    </div>
-  </div>
-  <div class="row">
-    <div class="label" data-i18n="MaxAT">Max Außentemp</div>
-    <div class="ctrl">
-      <button data-ident="MaxAT" data-delta="-0.5">−</button>
-      <div class="val" id="val-MaxAT">--</div>
-      <button data-ident="MaxAT" data-delta="+0.5">+</button>
-    </div>
-  </div>
-
-  <div class="status" id="status"></div>
-  <div class="mini">
-    <svg viewBox="0 0 100 36" preserveAspectRatio="none">
-      <polyline id="curve" fill="none" stroke="#6cf" stroke-width="2" points="0,0 100,0" />
-      <circle id="ptAT" r="2.5" fill="#fc6" cx="0" cy="0" />
-    </svg>
-  </div>
-</div>
-<script>
-(function(){
-  const $ = (id)=>document.getElementById(id);
-
-  function fmt(v, unit){
-    if (v === null || v === undefined) return '--';
-    return (Math.round(v*2)/2).toFixed(1) + unit;
-  }
-
-  function drawMini(p){
-    const x0=0, x1=100, y0=30, y1=6; // invert for display
-    // line from (MinAT -> MaxVorlauf) to (MaxAT -> MinVorlauf)
-    const pts = `${x0},${y0} ${x1},${y1}`;
-    document.getElementById('curve').setAttribute('points', pts);
-    if (p.AT !== null && p.AT !== undefined) {
-      const ratio = (p.AT - p.MaxAT) / (p.MinAT - p.MaxAT);
-      const x = x0 + (x1 - x0) * ratio;
-      const y = y1 + (y0 - y1) * ( (p.VL - p.MinVorlauf) / (p.MaxVorlauf - p.MinVorlauf) );
-      document.getElementById('ptAT').setAttribute('cx', Math.max(0, Math.min(100, x)));
-      document.getElementById('ptAT').setAttribute('cy', Math.max(0, Math.min(36, y)));
-    }
-  }
-
-  function setVals(p){
-    $('val-MinVL').textContent = fmt(p.MinVorlauf, ' °C');
-    $('val-MaxVL').textContent = fmt(p.MaxVorlauf, ' °C');
-    $('val-MinAT').textContent = fmt(p.MinAT, ' °C');
-    $('val-MaxAT').textContent = fmt(p.MaxAT, ' °C');
-    const status = [];
-    status.push((typeof translate === 'function' ? translate('Außen aktuell') : 'Außen aktuell')+': '+fmt(p.AT,' °C'));
-    status.push((typeof translate === 'function' ? translate('Soll-Vorlauf') : 'Soll-Vorlauf')+': '+fmt(p.VL,' °C'));
-    $('status').textContent = status.join('   ·   ');
-    drawMini(p);
-  }
-
-  // Button wiring
-  document.querySelectorAll('button[data-ident]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const ident = btn.getAttribute('data-ident');
-      const delta = parseFloat(btn.getAttribute('data-delta'));
-      if (typeof requestAction === 'function') {
-        requestAction(ident, delta);
-      }
-    });
-  });
-
-  // HTML-SDK entry point for live updates
-  window.handleMessage = function(payload){
-    try {
-      const p = (typeof payload === 'string') ? JSON.parse(payload) : payload;
-      setVals(p);
-    } catch (e) {
-      console.error('handleMessage parse error', e);
-    }
-  };
-
-  // Initial payload injected from PHP
-  handleMessage($payload$);
-})();
-</script>
-HTML;
-
-        $html = str_replace('$payload$', $payload, $html);
-        return $html;
+        // Template missing: log and return empty
+        $this->SendDebug('GetVisualizationTile', 'module.html not found', 0);
+        return '';
     }
 }

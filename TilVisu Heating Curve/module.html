@@ -29,7 +29,7 @@
   /* Each group has 4 columns: label | minus | value | plus */
   .grp {
     display: grid;
-    grid-template-columns: max-content 28px 64px 28px;
+    grid-template-columns: max-content 28px 40px 28px;
     align-items: center;
     column-gap: 8px;
   }
@@ -41,9 +41,31 @@
   }
 
   .val {
-    width: 64px;
+    width: 40px;
     text-align: center;
     font-weight: 600;
+  }
+
+  /* Responsive: stack buttons vertically when width is limited */
+  @media (max-width: 420px) {
+    /* Stack groups under each other */
+    .ctrl { grid-auto-flow: row; row-gap: 12px; }
+
+    /* Within each group, place +/- under each other next to the value */
+    .grp {
+      grid-template-columns: 28px 1fr;
+      grid-template-rows: auto auto auto;
+      grid-template-areas:
+        "label label"
+        "minus value"
+        "plus value";
+      column-gap: 8px;
+      row-gap: 6px;
+    }
+    .grp > .label { grid-area: label; width: auto; text-align: left; }
+    .grp > button:first-of-type { grid-area: minus; }
+    .grp > .val { grid-area: value; justify-self: start; }
+    .grp > button:last-of-type { grid-area: plus; }
   }
 
   button {
@@ -474,6 +496,7 @@
 
   // Store current payload for button validation
   let currentPayload = null;
+  let gotInit = false;
 
   function setVals(p){
     currentPayload = p; // Store for button validation
@@ -562,11 +585,47 @@
     try {
       const p = (typeof payload === 'string') ? JSON.parse(payload) : payload;
       setVals(p);
+      gotInit = true;
     } catch (e) {
       console.error('handleMessage parse error', e);
     }
   };
 
-  // No initial payload injection here; PHP will push via UpdateVisualizationValue
+  // Symcon HTML-SDK compatibility: backend may call this function directly
+  window.UpdateVisualizationValue = function(payload){
+    window.handleMessage(payload);
+  };
+
+  // Listen for messages from backend (UpdateVisualizationValue -> postMessage)
+  window.addEventListener('message', (ev)=>{
+    try {
+      const d = ev.data;
+      if (d === undefined || d === null) return;
+      // Heuristics: accept both JSON string and object
+      const p = (typeof d === 'string') ? JSON.parse(d) : d;
+      if (p && (typeof p === 'object')) {
+        window.handleMessage(p);
+      }
+    } catch(e) {
+      // ignore malformed messages
+    }
+  });
+
+  // Request initial payload from backend after template loads
+  function initHandshake(){
+    let attempts = 0;
+    const maxAttempts = 50; // ~10s @ 200ms
+    const tryInit = ()=>{
+      if (typeof requestAction === 'function') {
+        try { requestAction('Init', 0); } catch(e) {}
+      }
+      if (!gotInit && attempts < maxAttempts) {
+        attempts++;
+        setTimeout(tryInit, 200);
+      }
+    };
+    tryInit();
+  }
+  initHandshake();
 })();
 </script>
