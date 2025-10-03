@@ -280,17 +280,36 @@ class TilVisuHeatingCurve extends IPSModule
         if (!is_float($cur) && !is_int($cur)) {
             $cur = null;
         }
-        $this->SendDebug('WriteTarget', sprintf('Current=%.1f, New=%.1f, Diff=%.3f', $cur ?? 0, $value, abs(($cur ?? 0) - $value)), 0);
-        if ($cur === null || abs((float)$cur - $value) > 0.001) {
-            $this->SendDebug('WriteTarget', 'Using SetValue to VarID=' . $varID, 0);
-            $result = SetValue($varID, $value);
-            if ($result === false) {
-                $this->SendDebug('WriteTarget', 'SetValue FAILED!', 0);
-            } else {
-                $this->SendDebug('WriteTarget', 'SetValue SUCCESS', 0);
-            }
-        } else {
+        $diff = ($cur === null) ? PHP_FLOAT_MAX : abs((float)$cur - $value);
+        $this->SendDebug('WriteTarget', sprintf('Current=%s, New=%.1f, Diff=%.3f', $cur === null ? 'null' : number_format((float)$cur, 1), $value, $diff), 0);
+        if ($cur !== null && $diff <= 0.001) {
             $this->SendDebug('WriteTarget', 'Value unchanged, skipping write', 0);
+            return;
+        }
+
+        // Prefer RequestAction if an action is available on the variable; fallback to SetValue
+        $varInfo = IPS_GetVariable($varID);
+        $custom = $varInfo['VariableCustomAction'] ?? 0;
+        $action = $varInfo['VariableAction'] ?? 0;
+        $hasAction = ($custom > 0) || ($action > 0);
+
+        $ok = false;
+        if ($hasAction) {
+            $this->SendDebug('WriteTarget', 'Using RequestAction for VarID=' . $varID, 0);
+            try {
+                RequestAction($varID, $value);
+                $ok = true;
+            } catch (\Throwable $e) {
+                $ok = false;
+                $this->SendDebug('WriteTarget', 'RequestAction exception: ' . $e->getMessage(), 0);
+            }
+            $this->SendDebug('WriteTarget', 'RequestAction ' . ($ok ? 'SUCCESS' : 'FAILED'), 0);
+        }
+
+        if (!$ok) {
+            $this->SendDebug('WriteTarget', 'Falling back to SetValue for VarID=' . $varID, 0);
+            $ok = SetValue($varID, $value);
+            $this->SendDebug('WriteTarget', 'SetValue ' . ($ok ? 'SUCCESS' : 'FAILED'), 0);
         }
     }
 
