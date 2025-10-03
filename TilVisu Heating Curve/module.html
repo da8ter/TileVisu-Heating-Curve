@@ -1,77 +1,127 @@
 <!DOCTYPE html>
 <meta charset="utf-8" />
 <style>
-  .tvhc { font-family: Roboto, sans-serif; color: var(--content-color, #eee); }
-  .row { display:flex; align-items:center; justify-content:space-between; margin:6px 0; }
-  .label { opacity: .8; }
-  .ctrl { display:grid; grid-auto-flow: column; grid-auto-columns: max-content; align-items:center; column-gap:24px; }
+  .tvhc {
+    color: var(--content-color, #eee);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 6px 0;
+  }
+
+
+  .ctrl {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    align-items: center;
+    column-gap: 24px;
+    background: color-mix(in srgb, var(--content-color, #eee) 10%, transparent);    padding: 4px;
+    border-radius: 50px;
+  }
+
   /* Each group has 4 columns: label | minus | value | plus */
-  .grp { display:grid; grid-template-columns: max-content 28px 64px 28px; align-items:center; column-gap:8px; }
-  .grp > .label { width:36px; text-align:right; opacity:.8; }
-  .val { width:64px; text-align:center; font-weight:600; font-variant-numeric: tabular-nums; }
-  button { width:28px; height:28px; color: var(--accent-color, #eee); cursor:pointer; background: transparent; border: none; appearance: none; -webkit-appearance: none; padding: 0; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
-  .status { margin-top:10px; font-size: 12px; opacity:.9; }
-  .mini { margin-top:8px; height:200px; }
-  canvas { width:100%; height:100%; display:block; background: transparent; }
+  .grp {
+    display: grid;
+    grid-template-columns: max-content 28px 64px 28px;
+    align-items: center;
+    column-gap: 8px;
+  }
+
+  .grp>.label {
+    width: 36px;
+    text-align: right;
+    opacity: .8;
+  }
+
+  .val {
+    width: 64px;
+    text-align: center;
+    font-weight: 600;
+  }
+
+  button {
+    width: 28px;
+    height: 28px;
+    color: var(--accent-color, #eee);
+    cursor: pointer;
+    background: var(--card-color, #eee);
+    border: none;
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    border-radius: 50px;
+  }
+
+  .controls-area {
+    flex: 0 0 auto;
+  }
+
+  .mini {
+    flex: 1 1 auto;
+    margin-top: 8px;
+    min-height: 200px;
+    overflow: hidden;
+  }
+
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: transparent;
+  }
 </style>
 <div class="tvhc">
-  <div class="status" id="status"></div>
   <div class="mini">
     <canvas id="chart"></canvas>
   </div>
-  <div class="row">
-    <div class="label" data-i18n="Vorlauf">Vorlauf</div>
-    <div class="ctrl">
-      <div class="grp">
-        <div class="label">Min</div>
-        <button data-ident="MinVL" data-delta="-1">−</button>
-        <div class="val" id="val-MinVL">--</div>
-        <button data-ident="MinVL" data-delta="+1">+</button>
-      </div>
-      <div class="grp">
-        <div class="label">Max</div>
-        <button data-ident="MaxVL" data-delta="-1">−</button>
-        <div class="val" id="val-MaxVL">--</div>
-        <button data-ident="MaxVL" data-delta="+1">+</button>
-      </div>
-    </div>
-  </div>
-  <div class="row">
-    <div class="label" data-i18n="Aussentemp">Außentemp</div>
-    <div class="ctrl">
-      <div class="grp">
-        <div class="label">Min</div>
-        <button data-ident="MinAT" data-delta="-1">−</button>
-        <div class="val" id="val-MinAT">--</div>
-        <button data-ident="MinAT" data-delta="+1">+</button>
-      </div>
-      <div class="grp">
-        <div class="label">Max</div>
-        <button data-ident="MaxAT" data-delta="-1">−</button>
-        <div class="val" id="val-MaxAT">--</div>
-        <button data-ident="MaxAT" data-delta="+1">+</button>
+  <div class="controls-area">
+    <div class="row">
+      <div class="label" data-i18n="Flow Temperature">Flow Temperature</div>
+      <div class="ctrl">
+        <div class="grp">
+          <div class="label" data-i18n="Min">Min</div>
+          <button data-ident="MinVL" data-delta="-1">−</button>
+          <div class="val" id="val-MinVL">--</div>
+          <button data-ident="MinVL" data-delta="+1">+</button>
+        </div>
+        <div class="grp">
+          <div class="label" data-i18n="Max">Max</div>
+          <button data-ident="MaxVL" data-delta="-1">−</button>
+          <div class="val" id="val-MaxVL">--</div>
+          <button data-ident="MaxVL" data-delta="+1">+</button>
+        </div>
       </div>
     </div>
-  </div>
 
-  <div class="row">
-    <div class="label" data-i18n="Plateau">Plateau</div>
-    <div class="ctrl">
-      <div class="grp">
-        <div class="label">Start</div>
-        <button data-ident="StartAT" data-delta="-1">−</button>
-        <div class="val" id="val-StartAT">--</div>
-        <button data-ident="StartAT" data-delta="+1">+</button>
-      </div>
-      <div class="grp">
-        <div class="label">Ende</div>
-        <button data-ident="EndAT" data-delta="-1">−</button>
-        <div class="val" id="val-EndAT">--</div>
-        <button data-ident="EndAT" data-delta="+1">+</button>
+    <div class="row">
+      <div class="label" data-i18n="Plateau">Plateau</div>
+      <div class="ctrl">
+        <div class="grp">
+          <div class="label" data-i18n="Start">Start</div>
+          <button data-ident="StartAT" data-delta="-1">−</button>
+          <div class="val" id="val-StartAT">--</div>
+          <button data-ident="StartAT" data-delta="+1">+</button>
+        </div>
+        <div class="grp">
+          <div class="label" data-i18n="End">End</div>
+          <button data-ident="EndAT" data-delta="-1">−</button>
+          <div class="val" id="val-EndAT">--</div>
+          <button data-ident="EndAT" data-delta="+1">+</button>
+        </div>
       </div>
     </div>
   </div>
-
 </div>
 <script>
 (function(){
@@ -79,7 +129,7 @@
 
   function fmt(v, unit){
     if (v === null || v === undefined) return '--';
-    return (Math.round(v*2)/2).toFixed(1) + unit;
+    return Math.round(v).toFixed(0) + unit;
   }
 
   function drawChart(p){
@@ -103,6 +153,7 @@
     // Colors from CSS variables (read from nearest container for reliability)
     const container = canvas.closest('.tvhc') || document.documentElement;
     const css = getComputedStyle(container);
+    const systemFontSize = parseFloat(css.fontSize) || 14;
     let accentColor = (css.getPropertyValue('--accent-color') || '').trim() || '#6cf';
     let contentColor = (css.getPropertyValue('--content-color') || '').trim() || '#eee';
     let curveColor = (css.getPropertyValue('--curve-color') || '').trim() || '#fc6';
@@ -155,7 +206,7 @@
     }
 
     // Chart area with gutters for labels (labels outside the plotted area)
-    const padL = 40, padR = 10, padT = 30, padB = 30;
+    const padL = 50, padR = 10, padT = 30, padB = 30;
     const W = cssW - padL - padR;
     const H = cssH - padT - padB;
     if (W <= 0 || H <= 0) return;
@@ -164,7 +215,9 @@
     const vlMinProp = p.MinVorlauf, vlMaxProp = p.MaxVorlauf; // properties for curve endpoints
     let startAT = (typeof p.StartAT === 'number') ? p.StartAT : atMax;
     let endAT = (typeof p.EndAT === 'number') ? p.EndAT : atMin;
-    const vlAxisMin = 0, vlAxisMax = 50;               // fixed Y axis (Vorlauf)
+    // Y axis (Vorlauf) from backend configuration with fallback values
+    const vlAxisMin = (typeof p.VLScaleMin === 'number' && isFinite(p.VLScaleMin)) ? p.VLScaleMin : 20;
+    const vlAxisMax = (typeof p.VLScaleMax === 'number' && isFinite(p.VLScaleMax)) ? p.VLScaleMax : 50;
     const atSpan = atMax - atMin;
     const vlAxisSpan = vlAxisMax - vlAxisMin;
 
@@ -211,10 +264,11 @@
       const step = niceStep(vlAxisSpan, 4);
       const start = Math.ceil(vlAxisMin / step) * step;
       ctx.fillStyle = contentColor;
-      ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+      ctx.font = systemFontSize + 'px sans-serif';
       ctx.textAlign = 'right';
-      ctx.textBaseline = 'middle';
       const labelGap = 10;
+      const yMin = padT + H;
+      const yMax = padT;
       for (let v = start; v <= vlAxisMax + 1e-6; v += step){
         const y = mapY(v);
         ctx.strokeStyle = accentColor;
@@ -223,6 +277,14 @@
         ctx.moveTo(padL - 3, y);
         ctx.lineTo(padL, y);
         ctx.stroke();
+        // Align bottom label up and top label down to prevent clipping
+        if (y >= yMin - 5) {
+          ctx.textBaseline = 'bottom';
+        } else if (y <= yMax + 5) {
+          ctx.textBaseline = 'top';
+        } else {
+          ctx.textBaseline = 'middle';
+        }
         // place label in the left gutter
         ctx.fillText(v.toFixed(0) + '°C', padL - labelGap, y);
       }
@@ -231,11 +293,12 @@
       const step = niceStep(atSpan, 4);
       const start = Math.ceil(atMin / step) * step;
       ctx.fillStyle = contentColor;
-      ctx.font = '11px system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
-      ctx.textAlign = 'center';
+      ctx.font = systemFontSize + 'px sans-serif';
       // place labels below the bottom axis into the bottom gutter
       ctx.textBaseline = 'top';
       const labelGap = 10;
+      const xMax = padL + W;
+      const xMin = padL;
       for (let a = start; a <= atMax + 1e-6; a += step){
         const x = mapX(a);
         ctx.strokeStyle = accentColor;
@@ -244,11 +307,60 @@
         ctx.moveTo(x, padT + H);
         ctx.lineTo(x, padT + H + 3);
         ctx.stroke();
+        // Align leftmost label to the left and rightmost label to the right to prevent clipping
+        if (x <= xMin + 5) {
+          ctx.textAlign = 'left';
+        } else if (x >= xMax - 5) {
+          ctx.textAlign = 'right';
+        } else {
+          ctx.textAlign = 'center';
+        }
         ctx.fillText(a.toFixed(0) + '°C', x, padT + H + labelGap);
       }
     }
     drawYTicks();
     drawXTicks();
+
+    // Current AT marker on X-axis
+    if (typeof p.AT === 'number' && isFinite(p.AT)){
+      const atX = Math.max(padL, Math.min(padL + W, mapX(p.AT)));
+      const atY = padT + H;
+      // Draw marker point
+      ctx.fillStyle = '#3b82f6';
+      ctx.beginPath();
+      ctx.arc(atX, atY, 3, 0, Math.PI*2);
+      ctx.fill();
+      // Draw temperature label above the point
+      const text = Math.round(p.AT) + '°C';
+      ctx.font = 'bold ' + systemFontSize + 'px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      const metrics = ctx.measureText(text);
+      const bgPadding = 4;
+      const bgRadius = 4;
+      const labelY = atY - 8;
+      // Draw rounded rectangle background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      const rectX = atX - metrics.width / 2 - bgPadding;
+      const rectY = labelY - systemFontSize - bgPadding;
+      const rectW = metrics.width + bgPadding * 2;
+      const rectH = systemFontSize + bgPadding * 2;
+      ctx.beginPath();
+      ctx.moveTo(rectX + bgRadius, rectY);
+      ctx.lineTo(rectX + rectW - bgRadius, rectY);
+      ctx.arcTo(rectX + rectW, rectY, rectX + rectW, rectY + bgRadius, bgRadius);
+      ctx.lineTo(rectX + rectW, rectY + rectH - bgRadius);
+      ctx.arcTo(rectX + rectW, rectY + rectH, rectX + rectW - bgRadius, rectY + rectH, bgRadius);
+      ctx.lineTo(rectX + bgRadius, rectY + rectH);
+      ctx.arcTo(rectX, rectY + rectH, rectX, rectY + rectH - bgRadius, bgRadius);
+      ctx.lineTo(rectX, rectY + bgRadius);
+      ctx.arcTo(rectX, rectY, rectX + bgRadius, rectY, bgRadius);
+      ctx.closePath();
+      ctx.fill();
+      // Draw text
+      ctx.fillStyle = '#3b82f6';
+      ctx.fillText(text, atX, labelY);
+    }
 
     // Heating curve: left plateau (MaxAT..StartAT) ->slope (StartAT..EndAT) -> right plateau (EndAT..MinAT)
     // Clamp plateau bounds into range and ensure order: endAT <= startAT
@@ -283,15 +395,12 @@
     ctx.lineTo(xRight, yCold);
     ctx.stroke();
 
-    // Blue control points (schematic style)
+    // Control points (schematic style)
     function dot(x, y){
-      ctx.fillStyle = pointColor;
-      ctx.strokeStyle = 'rgba(0,0,0,.25)';
-      ctx.lineWidth = 1;
+      ctx.fillStyle = accentColor;
       ctx.beginPath();
       ctx.arc(x, y, 3.5, 0, Math.PI*2);
       ctx.fill();
-      ctx.stroke();
     }
     dot(xLeft, yWarm);
     dot(xStart, yWarm);
@@ -316,31 +425,68 @@
       ctx.setLineDash([4,3]);
       ctx.strokeStyle = 'rgba(252, 198, 102, 1)';
       ctx.beginPath();
-      ctx.moveTo(cx, padT);
+      ctx.moveTo(cx, cy);
       ctx.lineTo(cx, padT + H);
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = '#fc6';
-      ctx.strokeStyle = 'rgba(0,0,0,.35)';
-      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(cx, cy, 3, 0, Math.PI*2);
+      ctx.arc(cx, cy, 6, 0, Math.PI*2);
       ctx.fill();
-      ctx.stroke();
+      
+      // Display VL temperature next to the marker
+      if (typeof p.VL === 'number' && isFinite(p.VL)) {
+        ctx.fillStyle = contentColor;
+        ctx.font = 'bold ' + systemFontSize + 'px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const textX = cx + 8;
+        const textY = cy;
+        // Draw text background for better readability
+        const text = Math.round(p.VL) + '°C';
+        const metrics = ctx.measureText(text);
+        const bgPadding = 4;
+        const bgRadius = 4;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        const rectX = textX - bgPadding;
+        const rectY = textY - 8;
+        const rectW = metrics.width + bgPadding * 2;
+        const rectH = 16;
+        // Draw rounded rectangle
+        ctx.beginPath();
+        ctx.moveTo(rectX + bgRadius, rectY);
+        ctx.lineTo(rectX + rectW - bgRadius, rectY);
+        ctx.arcTo(rectX + rectW, rectY, rectX + rectW, rectY + bgRadius, bgRadius);
+        ctx.lineTo(rectX + rectW, rectY + rectH - bgRadius);
+        ctx.arcTo(rectX + rectW, rectY + rectH, rectX + rectW - bgRadius, rectY + rectH, bgRadius);
+        ctx.lineTo(rectX + bgRadius, rectY + rectH);
+        ctx.arcTo(rectX, rectY + rectH, rectX, rectY + rectH - bgRadius, bgRadius);
+        ctx.lineTo(rectX, rectY + bgRadius);
+        ctx.arcTo(rectX, rectY, rectX + bgRadius, rectY, bgRadius);
+        ctx.closePath();
+        ctx.fill();
+        // Draw text
+        ctx.fillStyle = '#fc6';
+        ctx.fillText(text, textX, textY);
+      }
     }
   }
 
+  // Store current payload for button validation
+  let currentPayload = null;
+
   function setVals(p){
+    currentPayload = p; // Store for button validation
     const clamp = (v, min, max) => (typeof v === 'number' ? Math.max(min, Math.min(max, v)) : v);
-    const VL_MIN = 0, VL_MAX = 50;
+    // Validation range from backend configuration with fallback values
+    const VL_MIN = (typeof p.VLScaleMin === 'number' && isFinite(p.VLScaleMin)) ? p.VLScaleMin : 0;
+    const VL_MAX = (typeof p.VLScaleMax === 'number' && isFinite(p.VLScaleMax)) ? p.VLScaleMax : 50;
 
     const minVLDisp = clamp(p.MinVorlauf, VL_MIN, VL_MAX);
     const maxVLDisp = clamp(p.MaxVorlauf, VL_MIN, VL_MAX);
 
     $('val-MinVL').textContent = fmt(minVLDisp, ' °C');
     $('val-MaxVL').textContent = fmt(maxVLDisp, ' °C');
-    $('val-MinAT').textContent = fmt(p.MinAT, ' °C');
-    $('val-MaxAT').textContent = fmt(p.MaxAT, ' °C');
     if (document.getElementById('val-StartAT')) {
       const sAT = (typeof p.StartAT === 'number') ? p.StartAT : p.MaxAT;
       $('val-StartAT').textContent = fmt(clamp(sAT, p.MinAT, p.MaxAT), ' °C');
@@ -349,22 +495,64 @@
       const eAT = (typeof p.EndAT === 'number') ? p.EndAT : p.MinAT;
       $('val-EndAT').textContent = fmt(clamp(eAT, p.MinAT, p.MaxAT), ' °C');
     }
-    const status = [];
-    const atDisp = clamp(p.AT, p.MinAT, p.MaxAT);
-    const vlDisp = clamp(p.VL, VL_MIN, VL_MAX);
-    status.push((typeof translate === 'function' ? translate('Außen aktuell') : 'Außen aktuell')+': '+fmt(atDisp,' °C'));
-    status.push((typeof translate === 'function' ? translate('Soll-Vorlauf') : 'Soll-Vorlauf')+': '+fmt(vlDisp,' °C'));
-    $('status').textContent = status.join('   ·   ');
     drawChart(p);
+    updateButtonStates(p);
+  }
+
+  function updateButtonStates(p){
+    if (!p) return;
+    const VL_MIN = (typeof p.VLScaleMin === 'number' && isFinite(p.VLScaleMin)) ? p.VLScaleMin : 0;
+    const VL_MAX = (typeof p.VLScaleMax === 'number' && isFinite(p.VLScaleMax)) ? p.VLScaleMax : 50;
+    const AT_MIN = (typeof p.MinAT === 'number' && isFinite(p.MinAT)) ? p.MinAT : -60;
+    const AT_MAX = (typeof p.MaxAT === 'number' && isFinite(p.MaxAT)) ? p.MaxAT : 60;
+
+    document.querySelectorAll('button[data-ident]').forEach(btn=>{
+      const ident = btn.getAttribute('data-ident');
+      const delta = parseFloat(btn.getAttribute('data-delta'));
+      let disabled = false;
+
+      if (ident === 'MinVL') {
+        const newVal = (p.MinVorlauf || 0) + delta;
+        disabled = newVal < VL_MIN || newVal > VL_MAX;
+      } else if (ident === 'MaxVL') {
+        const newVal = (p.MaxVorlauf || 0) + delta;
+        disabled = newVal < VL_MIN || newVal > VL_MAX;
+      } else if (ident === 'StartAT') {
+        const newVal = ((typeof p.StartAT === 'number') ? p.StartAT : AT_MAX) + delta;
+        disabled = newVal < AT_MIN || newVal > AT_MAX;
+      } else if (ident === 'EndAT') {
+        const newVal = ((typeof p.EndAT === 'number') ? p.EndAT : AT_MIN) + delta;
+        disabled = newVal < AT_MIN || newVal > AT_MAX;
+      }
+
+      btn.disabled = disabled;
+      btn.style.opacity = disabled ? '0.3' : '1';
+      btn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    });
   }
 
   // Button wiring
   document.querySelectorAll('button[data-ident]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
+      if (btn.disabled) return; // Extra safety check
       const ident = btn.getAttribute('data-ident');
       const delta = parseFloat(btn.getAttribute('data-delta'));
-      if (typeof requestAction === 'function') {
-        requestAction(ident, delta);
+      if (typeof requestAction === 'function' && currentPayload) {
+        // Validate before sending
+        const p = currentPayload;
+        const VL_MIN = (typeof p.VLScaleMin === 'number' && isFinite(p.VLScaleMin)) ? p.VLScaleMin : 0;
+        const VL_MAX = (typeof p.VLScaleMax === 'number' && isFinite(p.VLScaleMax)) ? p.VLScaleMax : 50;
+        
+        let valid = true;
+        if (ident === 'MinVL' || ident === 'MaxVL') {
+          const currentVal = ident === 'MinVL' ? (p.MinVorlauf || 0) : (p.MaxVorlauf || 0);
+          const newVal = currentVal + delta;
+          if (newVal < VL_MIN || newVal > VL_MAX) valid = false;
+        }
+        
+        if (valid) {
+          requestAction(ident, delta);
+        }
       }
     });
   });

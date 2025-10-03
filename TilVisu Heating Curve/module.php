@@ -14,6 +14,8 @@ class TilVisuHeatingCurve extends IPSModule
         $this->RegisterPropertyFloat('MaxAT', 15.0);
         $this->RegisterPropertyFloat('StartAT', 10.0);
         $this->RegisterPropertyFloat('EndAT', -5.0);
+        $this->RegisterPropertyFloat('VLScaleMin', 20.0);
+        $this->RegisterPropertyFloat('VLScaleMax', 50.0);
         $this->RegisterPropertyInteger('Var_Aussentemperatur', 0);
         $this->RegisterPropertyInteger('Var_SollVorlauf', 0);
 
@@ -22,7 +24,7 @@ class TilVisuHeatingCurve extends IPSModule
 
         // Enable HTML-SDK Tile visualization
         if (method_exists($this, 'SetVisualizationType')) {
-            @$this->SetVisualizationType(1);
+            $this->SetVisualizationType(1);
         }
     }
 
@@ -35,7 +37,6 @@ class TilVisuHeatingCurve extends IPSModule
         if ($lastAT > 0) {
             // Unsubscribe from previous variable VM_UPDATE
             $this->UnregisterMessage($lastAT, VM_UPDATE);
-            @$this->UnregisterMessage($lastAT, VM_UPDATE);
         }
 
         // Validate properties
@@ -69,7 +70,7 @@ class TilVisuHeatingCurve extends IPSModule
 
         // Register to VM_UPDATE of Außentemperatur variable
         if ($varAT > 0) {
-            @$this->RegisterMessage($varAT, VM_UPDATE);
+            $this->RegisterMessage($varAT, VM_UPDATE);
             $this->WriteAttributeInteger('LastATVar', $varAT);
         } else {
             $this->WriteAttributeInteger('LastATVar', 0);
@@ -106,22 +107,22 @@ class TilVisuHeatingCurve extends IPSModule
 
         switch ($Ident) {
             case 'MinVL':
-                $minVL = round(($minVL + $delta) * 2) / 2.0;
+                $minVL = round($minVL + $delta);
                 break;
             case 'MaxVL':
-                $maxVL = round(($maxVL + $delta) * 2) / 2.0;
+                $maxVL = round($maxVL + $delta);
                 break;
             case 'MinAT':
-                $minAT = round(($minAT + $delta) * 2) / 2.0;
+                $minAT = round($minAT + $delta);
                 break;
             case 'MaxAT':
-                $maxAT = round(($maxAT + $delta) * 2) / 2.0;
+                $maxAT = round($maxAT + $delta);
                 break;
             case 'StartAT':
-                $startAT = round(($startAT + $delta) * 2) / 2.0;
+                $startAT = round($startAT + $delta);
                 break;
             case 'EndAT':
-                $endAT = round(($endAT + $delta) * 2) / 2.0;
+                $endAT = round($endAT + $delta);
                 break;
             default:
                 throw new Exception('Unknown Ident: ' . $Ident);
@@ -131,16 +132,16 @@ class TilVisuHeatingCurve extends IPSModule
         if (!($minVL < $maxVL)) {
             // Adjust by nudging the opposite bound
             if ($Ident === 'MinVL') {
-                $maxVL = $minVL + 0.5;
+                $maxVL = $minVL + 1.0;
             } else {
-                $minVL = $maxVL - 0.5;
+                $minVL = $maxVL - 1.0;
             }
         }
         if (!($minAT < $maxAT)) {
             if ($Ident === 'MinAT') {
-                $maxAT = $minAT + 0.5;
+                $maxAT = $minAT + 1.0;
             } else {
-                $minAT = $maxAT - 0.5;
+                $minAT = $maxAT - 1.0;
             }
         }
         // Ensure plateau order: minAT <= endAT <= startAT <= maxAT
@@ -171,14 +172,18 @@ class TilVisuHeatingCurve extends IPSModule
         if ($atNow !== null) {
             $vlNow = $this->CalculateVorlauf((float)$atNow, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
         }
+        $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
+        $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
         if (method_exists($this, 'UpdateVisualizationValue')) {
-            @$this->UpdateVisualizationValue(json_encode([
+            $this->UpdateVisualizationValue(json_encode([
                 'MinVorlauf' => $minVL,
                 'MaxVorlauf' => $maxVL,
                 'MinAT' => $minAT,
                 'MaxAT' => $maxAT,
                 'StartAT' => $startAT,
                 'EndAT' => $endAT,
+                'VLScaleMin' => $vlScaleMin,
+                'VLScaleMax' => $vlScaleMax,
                 'AT' => $atNow,
                 'VL' => $vlNow
             ]));
@@ -214,10 +219,15 @@ class TilVisuHeatingCurve extends IPSModule
         $vl = null;
         if ($configValid && $at !== null && $varVL > 0) {
             $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
+            $this->SendDebug('Calculate', sprintf('AT=%.1f -> VL=%.1f', $at, $vl), 0);
             $this->WriteTargetIfChanged($varVL, $vl);
+        } else {
+            $this->SendDebug('Skip', sprintf('configValid=%d, at=%s, varVL=%d', $configValid, $at === null ? 'null' : $at, $varVL), 0);
         }
 
         // Push visualization update
+        $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
+        $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
         $payload = [
             'MinVorlauf' => $minVL,
             'MaxVorlauf' => $maxVL,
@@ -225,34 +235,37 @@ class TilVisuHeatingCurve extends IPSModule
             'MaxAT' => $maxAT,
             'StartAT' => $startAT,
             'EndAT' => $endAT,
+            'VLScaleMin' => $vlScaleMin,
+            'VLScaleMax' => $vlScaleMax,
             'AT' => $at,
             'VL' => $vl
         ];
         if (method_exists($this, 'UpdateVisualizationValue')) {
-            @$this->UpdateVisualizationValue(json_encode($payload));
+            $this->UpdateVisualizationValue(json_encode($payload));
         }
     }
 
     private function WriteTargetIfChanged(int $varID, float $value): void
     {
         if (!IPS_VariableExists($varID)) {
+            $this->SendDebug('WriteTarget', 'Variable does not exist: ' . $varID, 0);
             return;
         }
-        $cur = @GetValue($varID);
+        $cur = GetValue($varID);
         if (!is_float($cur) && !is_int($cur)) {
             $cur = null;
         }
+        $this->SendDebug('WriteTarget', sprintf('Current=%.1f, New=%.1f, Diff=%.3f', $cur ?? 0, $value, abs(($cur ?? 0) - $value)), 0);
         if ($cur === null || abs((float)$cur - $value) > 0.001) {
-            // Prefer RequestAction if available
-            $actionID = @IPS_GetVariable($varID)['VariableCustomAction'] ?? 0;
-            if ($actionID === 0) {
-                $actionID = @IPS_GetVariable($varID)['VariableAction'] ?? 0;
-            }
-            if ($actionID > 0) {
-                @RequestAction($varID, $value);
+            $this->SendDebug('WriteTarget', 'Using SetValue to VarID=' . $varID, 0);
+            $result = SetValue($varID, $value);
+            if ($result === false) {
+                $this->SendDebug('WriteTarget', 'SetValue FAILED!', 0);
             } else {
-                @SetValue($varID, $value);
+                $this->SendDebug('WriteTarget', 'SetValue SUCCESS', 0);
             }
+        } else {
+            $this->SendDebug('WriteTarget', 'Value unchanged, skipping write', 0);
         }
     }
 
@@ -289,8 +302,8 @@ class TilVisuHeatingCurve extends IPSModule
         } elseif ($vl > $maxVL) {
             $vl = $maxVL;
         }
-        // Round to 0.5 K
-        return round($vl * 2) / 2.0;
+        // Round to 1 K
+        return round($vl);
     }
 
     // HTML-SDK: Provide the Tile content
@@ -309,6 +322,8 @@ class TilVisuHeatingCurve extends IPSModule
             $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
         }
 
+        $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
+        $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
         $payload = json_encode([
             'MinVorlauf' => $minVL,
             'MaxVorlauf' => $maxVL,
@@ -316,6 +331,8 @@ class TilVisuHeatingCurve extends IPSModule
             'MaxAT' => $maxAT,
             'StartAT' => $startAT,
             'EndAT' => $endAT,
+            'VLScaleMin' => $vlScaleMin,
+            'VLScaleMax' => $vlScaleMax,
             'AT' => $at,
             'VL' => $vl
         ]);
