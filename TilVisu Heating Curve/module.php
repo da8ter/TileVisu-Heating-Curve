@@ -314,13 +314,38 @@ class TilVisuHeatingCurve extends IPSModule
                 $this->SendDebug('WriteTarget', 'RequestAction did not apply value (will fallback)', 0);
             }
         } else {
-            $this->SendDebug('WriteTarget', 'No valid action target for VarID=' . $varID . ' (using SetValue)', 0);
+            $this->SendDebug('WriteTarget', 'No valid action target for VarID=' . $varID, 0);
         }
 
         if (!$ok) {
-            $this->SendDebug('WriteTarget', 'Falling back to SetValue for VarID=' . $varID, 0);
-            $ok = SetValue($varID, $value);
-            $this->SendDebug('WriteTarget', 'SetValue ' . ($ok ? 'SUCCESS' : 'FAILED'), 0);
+            // Try direct call on parent instance RequestAction using variable Ident
+            $obj = IPS_GetObject($varID);
+            $parentID = isset($obj['ParentID']) ? (int)$obj['ParentID'] : 0;
+            $ident = isset($obj['ObjectIdent']) ? (string)$obj['ObjectIdent'] : '';
+            $isInstanceOwned = ($parentID > 0 && IPS_InstanceExists($parentID));
+
+            if ($isInstanceOwned && $ident !== '') {
+                $this->SendDebug('WriteTarget', 'Trying IPS_RequestAction on ParentID=' . $parentID . ', Ident=' . $ident, 0);
+                @IPS_RequestAction($parentID, $ident, $value);
+                $after2 = GetValue($varID);
+                if ((is_float($after2) || is_int($after2)) && abs((float)$after2 - $value) <= 0.001) {
+                    $ok = true;
+                    $this->SendDebug('WriteTarget', 'IPS_RequestAction SUCCESS (verified by readback)', 0);
+                } else {
+                    $this->SendDebug('WriteTarget', 'IPS_RequestAction did not apply value', 0);
+                }
+            }
+
+            // Final fallback: only when no action exists
+            if (!$ok) {
+                if (!$hasValidAction) {
+                    $this->SendDebug('WriteTarget', 'Falling back to SetValue for VarID=' . $varID . ' (no action present)', 0);
+                    $ok = @SetValue($varID, $value);
+                    $this->SendDebug('WriteTarget', 'SetValue ' . ($ok ? 'SUCCESS' : 'FAILED'), 0);
+                } else {
+                    $this->SendDebug('WriteTarget', 'Action exists but write failed; skipping SetValue', 0);
+                }
+            }
         }
     }
 
