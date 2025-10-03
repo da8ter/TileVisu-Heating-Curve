@@ -46,26 +46,15 @@
     font-weight: 600;
   }
 
-  /* Responsive: stack buttons vertically when width is limited */
-  @media (max-width: 420px) {
-    /* Stack groups under each other */
-    .ctrl { grid-auto-flow: row; row-gap: 12px; }
+  /* Responsive step 1: place label above controls (keep groups side-by-side) */
+  @media (max-width: 560px) {
+    .row { flex-direction: column; align-items: center; gap: 8px; }
+    .row > .label { width: 100%; text-align: center; white-space: normal; }
+  }
 
-    /* Within each group, place +/- under each other next to the value */
-    .grp {
-      grid-template-columns: 28px 1fr;
-      grid-template-rows: auto auto auto;
-      grid-template-areas:
-        "label label"
-        "minus value"
-        "plus value";
-      column-gap: 8px;
-      row-gap: 6px;
-    }
-    .grp > .label { grid-area: label; width: auto; text-align: left; }
-    .grp > button:first-of-type { grid-area: minus; }
-    .grp > .val { grid-area: value; justify-self: start; }
-    .grp > button:last-of-type { grid-area: plus; }
+  /* Responsive step 2: very narrow -> stack the two .grp blocks under each other */
+  @media (max-width: 420px) {
+    .ctrl { display: flex; flex-direction: column; gap: 12px; align-items: center; }
   }
 
   button {
