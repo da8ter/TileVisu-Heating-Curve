@@ -48,12 +48,9 @@ Interaktive HTML-Kachel für IP-Symcon zur Visualisierung und Anpassung einer He
 3. Suche nach **"TileVisu Heating Curve"**
 4. Klicke auf **Installieren**
 
-### Manuelle Installation
-1. Navigiere zum IP-Symcon Modules-Verzeichnis
-2. Repository klonen:
-```bash
-git clone https://github.com/da8ter/TileVisu-Heating-Curve.git
-```
+### Manuelle Installation über Module Control
+ https://github.com/da8ter/TileVisu-Heating-Curve.git
+
 ## Konfiguration
 
 ### Instanz erstellen
@@ -141,37 +138,14 @@ Berechnet Soll-Vorlauftemperatur basierend auf aktueller Außentemperatur und Ku
 ```php
 RecalculateAndPush(bool $configValid): void
 ```
-Berechnet Vorlauftemperatur neu und aktualisiert sowohl die Zielvariable als auch die Visualisierung.
+Berechnet Vorlauftemperatur neu und aktualisiert sowohl Zielvariable als auch Visualisierung.
 
-## Bekannte Einschränkungen
-
-⚠️ **Hinweis**: Die aktuelle Implementierung ändert ihre eigenen Properties über `IPS_SetProperty()` in `RequestAction()`. Dies verstößt gegen Symcon Best Practice #16. Eine zukünftige Version sollte stattdessen Variablen oder Buffer verwenden.
 
 ## Support
-
-### Issues & Feature Requests
-Bitte verwende die [GitHub Issues](https://github.com/da8ter/TileVisu-Heating-Curve/issues) Seite.
 
 ### Spenden
 Wenn du dieses Modul nützlich findest, unterstütze gerne den Entwickler:
 - [PayPal](https://paypal.me/sspkbw25)
 - [Amazon Wunschliste](https://www.amazon.de/hz/wishlist/ls/2LE6P493HMWT0)
 
-## Lizenz
-
-Dieses Projekt ist unter [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) lizenziert.
-
-Es ist dir erlaubt:
-- **Teilen** - Kopieren und Weiterverbreiten
-- **Bearbeiten** - Remixen und Transformieren
-
-Unter folgenden Bedingungen:
-- **Namensnennung** - Angemessene Quellenangabe
-- **Nicht kommerziell** - Keine kommerzielle Nutzung
-- **Weitergabe unter gleichen Bedingungen** - Verteilung unter gleicher Lizenz
-
----
-
-**Autor**: da8ter  
-**Repository**: https://github.com/da8ter/TileVisu-Heating-Curve  
 **Symcon Forum**: [Link zum Forum-Thread falls vorhanden]

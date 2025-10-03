@@ -22,6 +22,14 @@ class TilVisuHeatingCurve extends IPSModule
         // Attributes to manage message subscriptions
         $this->RegisterAttributeInteger('LastATVar', 0);
 
+        // Attributes for runtime curve parameters (overridable via RequestAction)
+        $this->RegisterAttributeFloat('RT_MinVorlauf', 0.0);
+        $this->RegisterAttributeFloat('RT_MaxVorlauf', 0.0);
+        $this->RegisterAttributeFloat('RT_MinAT', 0.0);
+        $this->RegisterAttributeFloat('RT_MaxAT', 0.0);
+        $this->RegisterAttributeFloat('RT_StartAT', 0.0);
+        $this->RegisterAttributeFloat('RT_EndAT', 0.0);
+
         // Enable HTML-SDK Tile visualization
         if (method_exists($this, 'SetVisualizationType')) {
             $this->SetVisualizationType(1);
@@ -32,6 +40,14 @@ class TilVisuHeatingCurve extends IPSModule
     {
         parent::ApplyChanges();
 
+        // Initialize runtime attributes from properties
+        $this->WriteAttributeFloat('RT_MinVorlauf', (float)$this->ReadPropertyFloat('MinVorlauf'));
+        $this->WriteAttributeFloat('RT_MaxVorlauf', (float)$this->ReadPropertyFloat('MaxVorlauf'));
+        $this->WriteAttributeFloat('RT_MinAT', (float)$this->ReadPropertyFloat('MinAT'));
+        $this->WriteAttributeFloat('RT_MaxAT', (float)$this->ReadPropertyFloat('MaxAT'));
+        $this->WriteAttributeFloat('RT_StartAT', (float)$this->ReadPropertyFloat('StartAT'));
+        $this->WriteAttributeFloat('RT_EndAT', (float)$this->ReadPropertyFloat('EndAT'));
+
         // Unregister previous message binding if present
         $lastAT = $this->ReadAttributeInteger('LastATVar');
         if ($lastAT > 0) {
@@ -39,13 +55,13 @@ class TilVisuHeatingCurve extends IPSModule
             $this->UnregisterMessage($lastAT, VM_UPDATE);
         }
 
-        // Validate properties
-        $minVL = (float)$this->ReadPropertyFloat('MinVorlauf');
-        $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
-        $minAT = (float)$this->ReadPropertyFloat('MinAT');
-        $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
-        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
-        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
+        // Validate curve parameters (read from runtime attributes)
+        $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
+        $maxVL = $this->ReadAttributeFloat('RT_MaxVorlauf');
+        $minAT = $this->ReadAttributeFloat('RT_MinAT');
+        $maxAT = $this->ReadAttributeFloat('RT_MaxAT');
+        $startAT = $this->ReadAttributeFloat('RT_StartAT');
+        $endAT = $this->ReadAttributeFloat('RT_EndAT');
         $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
 
@@ -84,9 +100,9 @@ class TilVisuHeatingCurve extends IPSModule
     {
         // Clean up (only if kernel is ready; InstanceInterface may be unavailable during shutdown)
         if (function_exists('IPS_GetKernelRunlevel') && defined('KR_READY') && IPS_GetKernelRunlevel() == KR_READY) {
-            $lastAT = @$this->ReadAttributeInteger('LastATVar');
+            $lastAT = $this->ReadAttributeInteger('LastATVar');
             if ($lastAT > 0) {
-                @$this->UnregisterMessage($lastAT, VM_UPDATE);
+                $this->UnregisterMessage($lastAT, VM_UPDATE);
             }
         }
         parent::Destroy();
@@ -98,12 +114,13 @@ class TilVisuHeatingCurve extends IPSModule
         // Value is expected to be a float delta (e.g., +0.5 / -0.5)
         $delta = (float)$Value;
 
-        $minVL = (float)$this->ReadPropertyFloat('MinVorlauf');
-        $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
-        $minAT = (float)$this->ReadPropertyFloat('MinAT');
-        $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
-        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
-        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
+        // Read current runtime values from attributes
+        $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
+        $maxVL = $this->ReadAttributeFloat('RT_MaxVorlauf');
+        $minAT = $this->ReadAttributeFloat('RT_MinAT');
+        $maxAT = $this->ReadAttributeFloat('RT_MaxAT');
+        $startAT = $this->ReadAttributeFloat('RT_StartAT');
+        $endAT = $this->ReadAttributeFloat('RT_EndAT');
 
         switch ($Ident) {
             case 'MinVL':
@@ -155,13 +172,13 @@ class TilVisuHeatingCurve extends IPSModule
             }
         }
 
-        // Persist new properties
-        IPS_SetProperty($this->InstanceID, 'MinVorlauf', $minVL);
-        IPS_SetProperty($this->InstanceID, 'MaxVorlauf', $maxVL);
-        IPS_SetProperty($this->InstanceID, 'MinAT', $minAT);
-        IPS_SetProperty($this->InstanceID, 'MaxAT', $maxAT);
-        IPS_SetProperty($this->InstanceID, 'StartAT', $startAT);
-        IPS_SetProperty($this->InstanceID, 'EndAT', $endAT);
+        // Persist new values to runtime attributes
+        $this->WriteAttributeFloat('RT_MinVorlauf', $minVL);
+        $this->WriteAttributeFloat('RT_MaxVorlauf', $maxVL);
+        $this->WriteAttributeFloat('RT_MinAT', $minAT);
+        $this->WriteAttributeFloat('RT_MaxAT', $maxAT);
+        $this->WriteAttributeFloat('RT_StartAT', $startAT);
+        $this->WriteAttributeFloat('RT_EndAT', $endAT);
         // Push immediate visualization update with the new values (optimistic update)
         $varATId = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $atNow = null;
@@ -188,7 +205,14 @@ class TilVisuHeatingCurve extends IPSModule
                 'VL' => $vlNow
             ]));
         }
-        IPS_ApplyChanges($this->InstanceID);
+        
+        // Recalculate and write target flow temperature
+        if ($atNow !== null && $vlNow !== null) {
+            $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
+            if ($varVL > 0) {
+                $this->WriteTargetIfChanged($varVL, $vlNow);
+            }
+        }
     }
 
     // Message sink for VM_UPDATE events
@@ -202,12 +226,13 @@ class TilVisuHeatingCurve extends IPSModule
 
     private function RecalculateAndPush(bool $configValid): void
     {
-        $minVL = (float)$this->ReadPropertyFloat('MinVorlauf');
-        $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
-        $minAT = (float)$this->ReadPropertyFloat('MinAT');
-        $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
-        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
-        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
+        // Read curve parameters from runtime attributes
+        $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
+        $maxVL = $this->ReadAttributeFloat('RT_MaxVorlauf');
+        $minAT = $this->ReadAttributeFloat('RT_MinAT');
+        $maxAT = $this->ReadAttributeFloat('RT_MaxAT');
+        $startAT = $this->ReadAttributeFloat('RT_StartAT');
+        $endAT = $this->ReadAttributeFloat('RT_EndAT');
         $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
         $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
 
