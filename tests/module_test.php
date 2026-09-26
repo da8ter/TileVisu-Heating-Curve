@@ -342,7 +342,7 @@ function szenarien(): array
     $GLOBALS['variables'][101]['value'] = 40.0; // Soll-Vorlauf von anderer Stelle verstellt
     $GLOBALS['writes'] = [];
     $schritt('Update without a new value ($Data[1] false) sends nothing', true, 0, $at(5.0, [5.0, false, 5.0, 1]));
-    $zeilen[] = ['... and neither recalculates nor rewrites the target', true, $GLOBALS['writes'] === [], ''];
+    $zeilen[] = ['... but still enforces the target against the change from elsewhere', false, $GLOBALS['writes'] !== [], ''];
     $schritt('Changed value ($Data[1] true) sends the new state', false, 1, $at(6.0, [6.0, true, 5.0, 2]));
     // Das Modul liest den aktuellen Wert: nach schnellen Aenderungen ist der Zustand derselbe
     $schritt('Identical state is not sent again', true, 0, $at(6.0, [6.0, true, 5.5, 3]));

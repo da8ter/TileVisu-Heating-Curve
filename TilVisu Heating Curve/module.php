@@ -255,20 +255,11 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         }
 
         if ($Message === VM_UPDATE && $SenderID === (int)$this->ReadPropertyInteger('Var_Aussentemperatur')) {
-            // Symcon meldet jede Aktualisierung, auch ohne neuen Wert: dann bleibt alles, wie es ist
-            if (!self::ValueChanged($Data)) {
-                return;
-            }
+            // Auch eine Aktualisierung ohne neuen Wert rechnet und setzt den Soll-Vorlauf durch, wie bisher.
+            // Die Kachel bekommt trotzdem nur eine Nachricht, wenn sich ihr Zustand geaendert hat (SendState).
             $this->SendDebug('Event', 'VM_UPDATE from Außentemperatur', 0);
             $this->RecalculateAndPush(true);
         }
-    }
-
-    // Symcon meldet mit VM_UPDATE jede Aktualisierung; $Data[1] sagt, ob sich der Wert geaendert hat.
-    // Fehlt die Angabe (anderes Format), gilt sie als Aenderung: lieber senden als eine verschlucken.
-    private static function ValueChanged(array $Data): bool
-    {
-        return !isset($Data[1]) || (bool)$Data[1];
     }
 
     private function RecalculateAndPush(bool $configValid): void
