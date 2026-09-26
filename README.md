@@ -1,6 +1,6 @@
 # TileVisu Heizkurve
 
-[![Version](https://img.shields.io/badge/Symcon-5.0+-blue.svg)](https://www.symcon.de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/)
+[![Version](https://img.shields.io/badge/Symcon-8.1+-blue.svg)](https://www.symcon.de/service/dokumentation/entwicklerbereich/sdk-tools/sdk-php/)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-green.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 Interaktive HTML-Kachel für IP-Symcon zur Visualisierung und Anpassung einer Heizkurve mit Plateau-Unterstützung.
@@ -35,7 +35,7 @@ Interaktive HTML-Kachel für IP-Symcon zur Visualisierung und Anpassung einer He
 
 ## Voraussetzungen
 
-- IP-Symcon **7.1 oder höher**
+- IP-Symcon **8.1 oder höher** (Module Strict)
 - Zwei Variablen:
   - Außentemperatur (lesbar)
   - Soll-Vorlauftemperatur (schreibbar)

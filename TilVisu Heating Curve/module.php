@@ -1,9 +1,10 @@
 <?php
+
 declare(strict_types=1);
 
-class TilVisuHeatingCurve extends IPSModule
+class TilVisuHeatingCurve extends IPSModuleStrict
 {
-    public function Create()
+    public function Create(): void
     {
         parent::Create();
 
@@ -31,14 +32,19 @@ class TilVisuHeatingCurve extends IPSModule
         $this->RegisterAttributeFloat('RT_EndAT', 0.0);
 
         // Enable HTML-SDK Tile visualization
-        if (method_exists($this, 'SetVisualizationType')) {
-            $this->SetVisualizationType(1);
-        }
+        $this->SetVisualizationType(1);
     }
 
-    public function ApplyChanges()
+    public function ApplyChanges(): void
     {
         parent::ApplyChanges();
+
+        // Kein Heavy Work vor KR_READY: Nachrichten, Variablenzugriffe und das Schreiben des
+        // Soll-Vorlaufs erst, wenn der Kernel bereit ist. IPS_KERNELSTARTED ruft ApplyChanges erneut auf.
+        if (IPS_GetKernelRunlevel() !== KR_READY) {
+            $this->RegisterMessage(0, IPS_KERNELSTARTED);
+            return;
+        }
 
         // Initialize runtime attributes from properties
         $this->WriteAttributeFloat('RT_MinVorlauf', (float)$this->ReadPropertyFloat('MinVorlauf'));
@@ -96,10 +102,10 @@ class TilVisuHeatingCurve extends IPSModule
         $this->RecalculateAndPush($valid);
     }
 
-    public function Destroy()
+    public function Destroy(): void
     {
         // Clean up (only if kernel is ready; InstanceInterface may be unavailable during shutdown)
-        if (function_exists('IPS_GetKernelRunlevel') && defined('KR_READY') && IPS_GetKernelRunlevel() == KR_READY) {
+        if (IPS_GetKernelRunlevel() === KR_READY) {
             $lastAT = $this->ReadAttributeInteger('LastATVar');
             if ($lastAT > 0) {
                 $this->UnregisterMessage($lastAT, VM_UPDATE);
@@ -109,7 +115,7 @@ class TilVisuHeatingCurve extends IPSModule
     }
 
     // Handle visualization actions from the HTML tile (idents: MinVL, MaxVL, MinAT, MaxAT, StartAT, EndAT)
-    public function RequestAction($Ident, $Value)
+    public function RequestAction(string $Ident, mixed $Value): void
     {
         // Value is expected to be a float delta (e.g., +0.5 / -0.5)
         $delta = (float)$Value;
@@ -198,21 +204,19 @@ class TilVisuHeatingCurve extends IPSModule
         }
         $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
         $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
-        if (method_exists($this, 'UpdateVisualizationValue')) {
-            $this->UpdateVisualizationValue(json_encode([
-                'MinVorlauf' => $minVL,
-                'MaxVorlauf' => $maxVL,
-                'MinAT' => $minAT,
-                'MaxAT' => $maxAT,
-                'StartAT' => $startAT,
-                'EndAT' => $endAT,
-                'VLScaleMin' => $vlScaleMin,
-                'VLScaleMax' => $vlScaleMax,
-                'AT' => $atNow,
-                'VL' => $vlNow
-            ]));
-        }
-        
+        $this->UpdateVisualizationValue(json_encode([
+            'MinVorlauf' => $minVL,
+            'MaxVorlauf' => $maxVL,
+            'MinAT' => $minAT,
+            'MaxAT' => $maxAT,
+            'StartAT' => $startAT,
+            'EndAT' => $endAT,
+            'VLScaleMin' => $vlScaleMin,
+            'VLScaleMax' => $vlScaleMax,
+            'AT' => $atNow,
+            'VL' => $vlNow
+        ]));
+
         // Recalculate and write target flow temperature
         if ($atNow !== null && $vlNow !== null) {
             $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
@@ -222,9 +226,14 @@ class TilVisuHeatingCurve extends IPSModule
         }
     }
 
-    // Message sink for VM_UPDATE events
-    public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
+    // Message sink for IPS_KERNELSTARTED and VM_UPDATE events
+    public function MessageSink(int $TimeStamp, int $SenderID, int $Message, array $Data): void
     {
+        if ($Message === IPS_KERNELSTARTED) {
+            $this->ApplyChanges();
+            return;
+        }
+
         if ($Message === VM_UPDATE && $SenderID === (int)$this->ReadPropertyInteger('Var_Aussentemperatur')) {
             $this->SendDebug('Event', 'VM_UPDATE from Außentemperatur', 0);
             $this->RecalculateAndPush(true);
@@ -272,9 +281,7 @@ class TilVisuHeatingCurve extends IPSModule
             'AT' => $at,
             'VL' => $vl
         ];
-        if (method_exists($this, 'UpdateVisualizationValue')) {
-            $this->UpdateVisualizationValue(json_encode($payload));
-        }
+        $this->UpdateVisualizationValue(json_encode($payload));
     }
 
     private function WriteTargetIfChanged(int $varID, float $value): void
@@ -387,7 +394,7 @@ class TilVisuHeatingCurve extends IPSModule
     }
 
     // HTML-SDK: Provide the Tile content
-    public function GetVisualizationTile()
+    public function GetVisualizationTile(): string
     {
         $minVL = (float)$this->ReadPropertyFloat('MinVorlauf');
         $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
@@ -420,9 +427,7 @@ class TilVisuHeatingCurve extends IPSModule
         $templatePath = __DIR__ . '/module.html';
         $html = @file_get_contents($templatePath);
         if ($html !== false) {
-            if (method_exists($this, 'UpdateVisualizationValue')) {
-                @$this->UpdateVisualizationValue($payload);
-            }
+            $this->UpdateVisualizationValue($payload);
             return $html;
         }
         // Template missing: log and return empty
