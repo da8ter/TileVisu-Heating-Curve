@@ -117,15 +117,9 @@ class TilVisuHeatingCurve extends IPSModuleStrict
     // Handle visualization actions from the HTML tile (idents: MinVL, MaxVL, MinAT, MaxAT, StartAT, EndAT)
     public function RequestAction(string $Ident, mixed $Value): void
     {
-        // Value is expected to be a float delta (e.g., +0.5 / -0.5)
+        // Value is expected to be a float delta (e.g., +1 / -1)
+        // Kein 'Init' mehr: den Anfangszustand liefert GetVisualizationTile im Kacheldokument mit.
         $delta = (float)$Value;
-
-        // Initial handshake from frontend to request current payload after HTML has loaded
-        if ($Ident === 'Init') {
-            $this->SendDebug('RequestAction', 'Init received -> push current state', 0);
-            $this->RecalculateAndPush(true);
-            return;
-        }
 
         // Read current runtime values from attributes
         $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
@@ -192,37 +186,14 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         $this->WriteAttributeFloat('RT_MaxAT', $maxAT);
         $this->WriteAttributeFloat('RT_StartAT', $startAT);
         $this->WriteAttributeFloat('RT_EndAT', $endAT);
-        // Push immediate visualization update with the new values (optimistic update)
-        $varATId = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
-        $atNow = null;
-        if ($varATId > 0 && IPS_VariableExists($varATId)) {
-            $atNow = GetValue($varATId);
-        }
-        $vlNow = null;
-        if ($atNow !== null) {
-            $vlNow = $this->CalculateVorlauf((float)$atNow, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
-        }
-        $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
-        $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
-        $this->UpdateVisualizationValue(json_encode([
-            'MinVorlauf' => $minVL,
-            'MaxVorlauf' => $maxVL,
-            'MinAT' => $minAT,
-            'MaxAT' => $maxAT,
-            'StartAT' => $startAT,
-            'EndAT' => $endAT,
-            'VLScaleMin' => $vlScaleMin,
-            'VLScaleMax' => $vlScaleMax,
-            'AT' => $atNow,
-            'VL' => $vlNow
-        ]));
+
+        // Push the new values to the tile first, then write the target flow temperature (may take a while)
+        $state = $this->BuildState(true);
+        $this->SendState($state);
 
         // Recalculate and write target flow temperature
-        if ($atNow !== null && $vlNow !== null) {
-            $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
-            if ($varVL > 0) {
-                $this->WriteTargetIfChanged($varVL, $vlNow);
-            }
+        if ($state['VL'] !== null) {
+            $this->WriteTargetIfChanged($this->ReadPropertyInteger('Var_SollVorlauf'), $state['VL']);
         }
     }
 
@@ -242,15 +213,33 @@ class TilVisuHeatingCurve extends IPSModuleStrict
 
     private function RecalculateAndPush(bool $configValid): void
     {
-        // Read curve parameters from runtime attributes
+        $state = $this->BuildState($configValid);
+        $varVL = $this->ReadPropertyInteger('Var_SollVorlauf');
+
+        if ($state['VL'] !== null) {
+            $this->SendDebug('Calculate', sprintf('AT=%.1f -> VL=%.1f', $state['AT'], $state['VL']), 0);
+            $this->WriteTargetIfChanged($varVL, $state['VL']);
+        } else {
+            $this->SendDebug('Skip', sprintf('configValid=%d, at=%s, varVL=%d', $configValid, $state['AT'] === null ? 'null' : $state['AT'], $varVL), 0);
+        }
+
+        // Push visualization update
+        $this->SendState($state);
+    }
+
+    // Zustand der Kachel: Kurve aus den Laufzeitwerten (RT_*), Achse, aktuelle Aussentemperatur und Soll-Vorlauf.
+    // Derselbe Aufbau fuer den Anfangszustand im Kacheldokument und fuer jede spaetere Nachricht.
+    // VL nur mit gueltiger Konfiguration, bekannter Aussentemperatur und zugeordnetem Soll-Vorlauf.
+    private function BuildState(bool $configValid): array
+    {
         $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
         $maxVL = $this->ReadAttributeFloat('RT_MaxVorlauf');
         $minAT = $this->ReadAttributeFloat('RT_MinAT');
         $maxAT = $this->ReadAttributeFloat('RT_MaxAT');
         $startAT = $this->ReadAttributeFloat('RT_StartAT');
         $endAT = $this->ReadAttributeFloat('RT_EndAT');
-        $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
-        $varVL = (int)$this->ReadPropertyInteger('Var_SollVorlauf');
+        $varAT = $this->ReadPropertyInteger('Var_Aussentemperatur');
+        $varVL = $this->ReadPropertyInteger('Var_SollVorlauf');
 
         $at = null;
         if ($varAT > 0 && IPS_VariableExists($varAT)) {
@@ -260,28 +249,32 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         $vl = null;
         if ($configValid && $at !== null && $varVL > 0) {
             $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
-            $this->SendDebug('Calculate', sprintf('AT=%.1f -> VL=%.1f', $at, $vl), 0);
-            $this->WriteTargetIfChanged($varVL, $vl);
-        } else {
-            $this->SendDebug('Skip', sprintf('configValid=%d, at=%s, varVL=%d', $configValid, $at === null ? 'null' : $at, $varVL), 0);
         }
 
-        // Push visualization update
-        $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
-        $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
-        $payload = [
+        return [
             'MinVorlauf' => $minVL,
             'MaxVorlauf' => $maxVL,
             'MinAT' => $minAT,
             'MaxAT' => $maxAT,
             'StartAT' => $startAT,
             'EndAT' => $endAT,
-            'VLScaleMin' => $vlScaleMin,
-            'VLScaleMax' => $vlScaleMax,
+            'VLScaleMin' => $this->ReadPropertyFloat('VLScaleMin'),
+            'VLScaleMax' => $this->ReadPropertyFloat('VLScaleMax'),
             'AT' => $at,
             'VL' => $vl
         ];
-        $this->UpdateVisualizationValue(json_encode($payload));
+    }
+
+    // Zustand als JSON-Text an die offenen Kacheln. Laesst er sich nicht kodieren (z. B. ungueltiges UTF-8 in
+    // einer Text-Variable als Aussentemperatur), geht nichts hinaus statt eines false.
+    private function SendState(array $state): void
+    {
+        $json = json_encode($state);
+        if ($json === false) {
+            $this->SendDebug('SendState', 'State not encodable: ' . json_last_error_msg(), 0);
+            return;
+        }
+        $this->UpdateVisualizationValue($json);
     }
 
     private function WriteTargetIfChanged(int $varID, float $value): void
@@ -396,42 +389,23 @@ class TilVisuHeatingCurve extends IPSModuleStrict
     // HTML-SDK: Provide the Tile content
     public function GetVisualizationTile(): string
     {
-        $minVL = (float)$this->ReadPropertyFloat('MinVorlauf');
-        $maxVL = (float)$this->ReadPropertyFloat('MaxVorlauf');
-        $minAT = (float)$this->ReadPropertyFloat('MinAT');
-        $maxAT = (float)$this->ReadPropertyFloat('MaxAT');
-        $startAT = (float)($this->ReadPropertyFloat('StartAT') ?? $maxAT);
-        $endAT = (float)($this->ReadPropertyFloat('EndAT') ?? $minAT);
-        $varAT = (int)$this->ReadPropertyInteger('Var_Aussentemperatur');
-        $at = ($varAT > 0 && IPS_VariableExists($varAT)) ? GetValue($varAT) : null;
-        $vl = null;
-        if ($at !== null) {
-            $vl = $this->CalculateVorlauf((float)$at, $minVL, $maxVL, $minAT, $maxAT, $startAT, $endAT);
-        }
-
-        $vlScaleMin = (float)$this->ReadPropertyFloat('VLScaleMin');
-        $vlScaleMax = (float)$this->ReadPropertyFloat('VLScaleMax');
-        $payload = json_encode([
-            'MinVorlauf' => $minVL,
-            'MaxVorlauf' => $maxVL,
-            'MinAT' => $minAT,
-            'MaxAT' => $maxAT,
-            'StartAT' => $startAT,
-            'EndAT' => $endAT,
-            'VLScaleMin' => $vlScaleMin,
-            'VLScaleMax' => $vlScaleMax,
-            'AT' => $at,
-            'VL' => $vl
-        ]);
-
         $templatePath = __DIR__ . '/module.html';
         $html = @file_get_contents($templatePath);
-        if ($html !== false) {
-            $this->UpdateVisualizationValue($payload);
+        if ($html === false) {
+            // Template missing: log and return empty
+            $this->SendDebug('GetVisualizationTile', 'module.html not found', 0);
+            return '';
+        }
+
+        // Anfangszustand inline im Dokument. Frueher ging er per UpdateVisualizationValue an ALLE offenen Kacheln,
+        // bei jedem Oeffnen irgendeiner Kachel, und die sich oeffnende Kachel fragte bis zu 50-mal per Init nach.
+        // Derselbe Zustand wie bei jeder Aktualisierung (Laufzeitwerte RT_*), ohne den Soll-Vorlauf zu schreiben.
+        // Der JSON-Text steht als JS-Stringliteral da; JSON_HEX_TAG: kein </script> aus einem Wert im Skriptblock.
+        $state = json_encode($this->BuildState(true));
+        if ($state === false) {
+            $this->SendDebug('GetVisualizationTile', 'State not encodable: ' . json_last_error_msg(), 0);
             return $html;
         }
-        // Template missing: log and return empty
-        $this->SendDebug('GetVisualizationTile', 'module.html not found', 0);
-        return '';
+        return $html . '<script>handleMessage(' . json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP) . ');</script>';
     }
 }

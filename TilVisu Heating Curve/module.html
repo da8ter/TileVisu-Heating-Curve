@@ -485,7 +485,6 @@
 
   // Store current payload for button validation
   let currentPayload = null;
-  let gotInit = false;
 
   function setVals(p){
     currentPayload = p; // Store for button validation
@@ -574,7 +573,6 @@
     try {
       const p = (typeof payload === 'string') ? JSON.parse(payload) : payload;
       setVals(p);
-      gotInit = true;
     } catch (e) {
       console.error('handleMessage parse error', e);
     }
@@ -600,21 +598,11 @@
     }
   });
 
-  // Request initial payload from backend after template loads
-  function initHandshake(){
-    let attempts = 0;
-    const maxAttempts = 50; // ~10s @ 200ms
-    const tryInit = ()=>{
-      if (typeof requestAction === 'function') {
-        try { requestAction('Init', 0); } catch(e) {}
-      }
-      if (!gotInit && attempts < maxAttempts) {
-        attempts++;
-        setTimeout(tryInit, 200);
-      }
-    };
-    tryInit();
-  }
-  initHandshake();
+  // Den Anfangszustand haengt GetVisualizationTile als handleMessage-Aufruf hinter dieses Skript: kein
+  // Nachfragen beim Modul mehr. Neue Kachelgroesse: mit dem letzten Stand neu zeichnen, statt bis zur
+  // naechsten Wertaenderung ein gestrecktes Bild zu zeigen.
+  window.addEventListener('resize', ()=>{
+    if (currentPayload) drawChart(currentPayload);
+  });
 })();
 </script>

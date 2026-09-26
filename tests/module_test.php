@@ -48,6 +48,25 @@ function kurve(array $zustand): array
     return array_values(array_intersect_key($zustand, array_flip(['MinVorlauf', 'MaxVorlauf', 'MinAT', 'MaxAT', 'StartAT', 'EndAT'])));
 }
 
+// module.html der geladenen Fassung (beim Vorgaenger die Datei neben dessen module.php)
+function basis(): string
+{
+    return (string) file_get_contents(dirname((string) (new ReflectionClass(TilVisuHeatingCurve::class))->getFileName()) . '/module.html');
+}
+
+// Anfangszustand im Kacheldokument: module.html, dahinter genau <script>handleMessage("<JSON-Text>");</script>.
+// null, wenn er fehlt oder anders aussieht.
+function anfangszustand(string $html): ?array
+{
+    $base = basis();
+    if (!str_starts_with($html, $base)
+        || preg_match('~\A<script>handleMessage\\(("(?:[^"\\\\]|\\\\.)*")\\);</script>\z~s', substr($html, strlen($base)), $literal) !== 1) {
+        return null;
+    }
+    // Das JS-Stringliteral ist selbst gueltiges JSON
+    return zustand(json_decode($literal[1], true, 512, JSON_THROW_ON_ERROR));
+}
+
 // Szenarien, die auch gegen den Vorgaenger laufen: Zeilen [Bezeichnung, neues Verhalten, bestanden, Fehler].
 // "Neues Verhalten" muss beim Vorgaenger fallen, alles andere dort genauso bestehen.
 function szenarien(): array
@@ -132,6 +151,41 @@ function szenarien(): array
         $m->MessageSink(0, 100, VM_UPDATE, [-10.0, true, 5.0, 1]);
         return letzte($m)['AT'] === -10.0 && letzte($m)['VL'] === 55.0 && $GLOBALS['variables'][101]['value'] === 55.0;
     });
+
+    // Anfangszustand im Kacheldokument statt Init-Takt und Broadcast
+    $zeile('Tile document carries the current state inline (runtime values after ±)', true, static function (): bool {
+        $m = kachel();
+        $m->RequestAction('MinVL', 1);
+        $inline = anfangszustand($m->GetVisualizationTile());
+        return $inline !== null && $inline === letzte($m) && $inline['MinVorlauf'] === 26.0 && $inline['VL'] === 36.0;
+    });
+    $zeile('Opening a tile sends nothing to the open tiles (no UpdateVisualizationValue)', true, static function (): bool {
+        $m = kachel();
+        $vorher = count($m->updates);
+        $m->GetVisualizationTile();
+        return count($m->updates) === $vorher;
+    });
+    $zeile('Tile no longer polls with requestAction(\'Init\')', true, static function (): bool {
+        $html = kachel()->GetVisualizationTile();
+        return !str_contains($html, 'requestAction(\'Init\'') && !str_contains($html, 'initHandshake');
+    });
+    $zeile('Init no longer triggers a broadcast', true, static function (): bool {
+        $m = kachel();
+        $vorher = count($m->updates);
+        try {
+            $m->RequestAction('Init', 0);
+        } catch (Exception $e) {
+            // unbekannter Ident
+        }
+        return count($m->updates) === $vorher;
+    });
+    $zeile('Opening a tile writes nothing to the target variable', false, static function (): bool {
+        $m = kachel();
+        $GLOBALS['variables'][100]['value'] = -10.0;
+        $GLOBALS['writes'] = [];
+        $m->GetVisualizationTile();
+        return $GLOBALS['writes'] === [];
+    });
     return $zeilen;
 }
 
@@ -187,6 +241,38 @@ $runlevel = KR_READY;
 $k->MessageSink(0, 0, IPS_KERNELSTARTED, []);
 check(count($k->updates) === 1 && in_array(VM_UPDATE, $k->messages[100] ?? [], true) && $variables[101]['value'] === 35.0,
     'Kernel start completes ApplyChanges (state sent, VM_UPDATE registered, target written)');
+
+echo '--- Anfangszustand sicher im Skriptblock' . PHP_EOL;
+$boese = "O'Neil \"x\" \\ Zeile1\nZeile2 </script><script>alert(1)</script> & <b>";
+$b = kachel(20001);
+$variables[100]['value'] = $boese;
+$html = $b->GetVisualizationTile();
+$inline = anfangszustand($html);
+check($inline !== null && $inline['AT'] === $boese, 'Initial value with quote, backslash, newline and </script> arrives unchanged');
+$skript = substr($html, strlen(basis()));
+check(substr_count($skript, '</script>') === 1 && !str_contains($skript, '<b>') && substr_count($html, '<script>alert(1)') === 0,
+    'No </script> or tag from a value inside the initial script block');
+$variables[100]['value'] = "\xB1";
+$vorher = count($b->updates);
+check($b->GetVisualizationTile() === basis(), 'State that cannot be encoded as JSON: tile without initial script instead of an error');
+$b->MessageSink(0, 100, VM_UPDATE, ["\xB1", true, $boese, 2]);
+check(count($b->updates) === $vorher, 'State that cannot be encoded as JSON is not sent (no TypeError, no empty message)');
+
+echo '--- Kachel-Skripte (node --check)' . PHP_EOL;
+exec('command -v node 2>/dev/null', $nodePfad, $nodeCode);
+if ($nodeCode !== 0) {
+    echo 'SKIP: node not available' . PHP_EOL;
+} else {
+    preg_match_all('~<script>(.*?)</script>~s', kachel(20002)->GetVisualizationTile(), $skripte);
+    check(count($skripte[1]) === 2, 'Tile document: module script and the initial handleMessage script');
+    foreach ($skripte[1] as $nr => $js) {
+        $datei = sys_get_temp_dir() . '/tvhc-js-' . bin2hex(random_bytes(6)) . '.js';
+        file_put_contents($datei, $js);
+        exec('node --check ' . escapeshellarg($datei) . ' 2>&1', $ausgabe, $jsCode);
+        unlink($datei);
+        check($jsCode === 0, 'Script ' . ($nr + 1) . ' of the tile document compiles' . ($jsCode !== 0 ? ' [' . implode(' ', $ausgabe) . ']' : ''));
+    }
+}
 
 echo '--- Szenarien' . PHP_EOL;
 $zeilen = szenarien();
