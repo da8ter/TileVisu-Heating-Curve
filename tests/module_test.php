@@ -48,6 +48,25 @@ function kurve(array $zustand): array
     return array_values(array_intersect_key($zustand, array_flip(['MinVorlauf', 'MaxVorlauf', 'MinAT', 'MaxAT', 'StartAT', 'EndAT'])));
 }
 
+// Kernelstart bzw. Modul-Reload: neues Objekt, Create, danach die gespeicherten Eigenschaften und Attribute
+// (Symcon laedt sie nach Create; nicht mehr registrierte fallen weg), ApplyChanges vor KR_READY, dann
+// IPS_KERNELSTARTED. Puffer, Nachrichten und Referenzen ueberleben das nicht.
+function neustart(TilVisuHeatingCurve $alt): TilVisuHeatingCurve
+{
+    $neu = new TilVisuHeatingCurve();
+    $neu->InstanceID = $alt->InstanceID;
+    $neu->creating = true;
+    $neu->Create();
+    $neu->creating = false;
+    $neu->properties = array_replace($neu->properties, array_intersect_key($alt->properties, $neu->properties));
+    $neu->attributes = array_replace($neu->attributes, array_intersect_key($alt->attributes, $neu->attributes));
+    $GLOBALS['runlevel'] = 0;
+    $neu->ApplyChanges();
+    $GLOBALS['runlevel'] = KR_READY;
+    $neu->MessageSink(0, 0, IPS_KERNELSTARTED, []);
+    return $neu;
+}
+
 // module.html der geladenen Fassung (beim Vorgaenger die Datei neben dessen module.php)
 function basis(): string
 {
@@ -230,6 +249,74 @@ function szenarien(): array
         $m->properties['Var_SollVorlauf'] = 0;
         $m->ApplyChanges();
         return $vorher === [100, 101] && array_keys($m->references) === [102];
+    });
+
+    // Laufzeitwerte der ±-Knoepfe gegen Kernelstart, Reload und Uebernehmen
+    $zeile('Kernel start / module reload keeps the values set with ±', true, static function (): bool {
+        $m = kachel();
+        $m->RequestAction('MinVL', 1);
+        $m->RequestAction('StartAT', -2);
+        $n = neustart($m);
+        return kurve(letzte($n)) === [26.0, 55.0, -10.0, 15.0, 8.0, -5.0]
+            && kurve((array) anfangszustand($n->GetVisualizationTile())) === [26.0, 55.0, -10.0, 15.0, 8.0, -5.0];
+    });
+    $zeile('... twice in a row', true, static function (): bool {
+        $m = kachel();
+        $m->RequestAction('MaxVL', -3);
+        return kurve(letzte(neustart(neustart($m)))) === [25.0, 52.0, -10.0, 15.0, 10.0, -5.0];
+    });
+    $zeile('Saving the form without a changed curve property keeps the ± values', true, static function (): bool {
+        $m = kachel();
+        $m->RequestAction('EndAT', -2);
+        $m->properties['VLScaleMax'] = 60.0;
+        $m->ApplyChanges();
+        return letzte($m)['EndAT'] === -7.0 && letzte($m)['VLScaleMax'] === 60.0;
+    });
+    $zeile('MinAT changed in the form is taken over', false, static function (): bool {
+        $m = kachel();
+        $m->properties['MinAT'] = -12.0;
+        $m->ApplyChanges();
+        return letzte($m)['MinAT'] === -12.0;
+    });
+    $zeile('... while the ± values stay', true, static function (): bool {
+        $m = kachel();
+        $m->RequestAction('MinVL', 2);
+        $m->properties['MinAT'] = -12.0;
+        $m->ApplyChanges();
+        return kurve(letzte($m)) === [27.0, 55.0, -12.0, 15.0, 10.0, -5.0];
+    });
+    $zeile('A changed curve property wins over its ± value (last change wins)', false, static function (): bool {
+        $m = kachel();
+        $m->RequestAction('MinVL', 2);
+        $m->properties['MinVorlauf'] = 30.0; // IPS_SetProperty + IPS_ApplyChanges
+        $m->ApplyChanges();
+        return letzte($m)['MinVorlauf'] === 30.0;
+    });
+    $zeile('Update from the previous version keeps its runtime values', true, static function (): bool {
+        variable(100, 5.0);
+        variable(101, 0.0);
+        $m = new TilVisuHeatingCurve();
+        $m->Create();
+        $m->properties['Var_Aussentemperatur'] = 100;
+        $m->properties['Var_SollVorlauf'] = 101;
+        // gespeicherte Laufzeitwerte des Vorgaengers, per ± verstellt (ohne gemerkte Uebernahme)
+        foreach (['RT_MinVorlauf' => 30.0, 'RT_MaxVorlauf' => 50.0, 'RT_MinAT' => -10.0, 'RT_MaxAT' => 15.0, 'RT_StartAT' => 8.0, 'RT_EndAT' => -3.0] as $name => $wert) {
+            $m->attributes[$name] = $wert;
+        }
+        $m->ApplyChanges();
+        return kurve(letzte($m)) === [30.0, 50.0, -10.0, 15.0, 8.0, -3.0];
+    });
+    $zeile('Instance from before the runtime values takes the curve from its properties', false, static function (): bool {
+        variable(100, 5.0);
+        variable(101, 0.0);
+        $m = new TilVisuHeatingCurve();
+        $m->Create();
+        $m->properties['Var_Aussentemperatur'] = 100;
+        $m->properties['Var_SollVorlauf'] = 101;
+        $m->properties['MinVorlauf'] = 28.0; // frueher schrieben die ±-Knoepfe per IPS_SetProperty
+        $m->properties['StartAT'] = 7.0;
+        $m->ApplyChanges();
+        return kurve(letzte($m)) === [28.0, 55.0, -10.0, 15.0, 7.0, -5.0];
     });
 
     // Nachrichtenfilter: eine Folge an derselben Kachel, gezaehlt werden die Nachrichten je Schritt.

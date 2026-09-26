@@ -4,6 +4,16 @@ declare(strict_types=1);
 
 class TilVisuHeatingCurve extends IPSModuleStrict
 {
+    // Kurvenparameter: Eigenschaft => Laufzeitwert (Attribut). Die ±-Knoepfe aendern nur die Laufzeitwerte.
+    private const CURVE_PARAMETERS = [
+        'MinVorlauf' => 'RT_MinVorlauf',
+        'MaxVorlauf' => 'RT_MaxVorlauf',
+        'MinAT'      => 'RT_MinAT',
+        'MaxAT'      => 'RT_MaxAT',
+        'StartAT'    => 'RT_StartAT',
+        'EndAT'      => 'RT_EndAT',
+    ];
+
     public function Create(): void
     {
         parent::Create();
@@ -20,13 +30,16 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         $this->RegisterPropertyInteger('Var_Aussentemperatur', 0);
         $this->RegisterPropertyInteger('Var_SollVorlauf', 0);
 
-        // Attributes for runtime curve parameters (overridable via RequestAction)
+        // Attributes for runtime curve parameters (overridable via RequestAction). Die Standardwerte gelten nur
+        // fuer eine neue Instanz: gespeicherte Attributwerte laedt Symcon nach Create.
         $this->RegisterAttributeFloat('RT_MinVorlauf', 0.0);
         $this->RegisterAttributeFloat('RT_MaxVorlauf', 0.0);
         $this->RegisterAttributeFloat('RT_MinAT', 0.0);
         $this->RegisterAttributeFloat('RT_MaxAT', 0.0);
         $this->RegisterAttributeFloat('RT_StartAT', 0.0);
         $this->RegisterAttributeFloat('RT_EndAT', 0.0);
+        // Stand der Kurven-Eigenschaften bei der letzten Uebernahme in die Laufzeitwerte (JSON, '' = noch keine)
+        $this->RegisterAttributeString('RT_Source', '');
 
         // Enable HTML-SDK Tile visualization
         $this->SetVisualizationType(1);
@@ -43,13 +56,8 @@ class TilVisuHeatingCurve extends IPSModuleStrict
             return;
         }
 
-        // Initialize runtime attributes from properties
-        $this->WriteAttributeFloat('RT_MinVorlauf', (float)$this->ReadPropertyFloat('MinVorlauf'));
-        $this->WriteAttributeFloat('RT_MaxVorlauf', (float)$this->ReadPropertyFloat('MaxVorlauf'));
-        $this->WriteAttributeFloat('RT_MinAT', (float)$this->ReadPropertyFloat('MinAT'));
-        $this->WriteAttributeFloat('RT_MaxAT', (float)$this->ReadPropertyFloat('MaxAT'));
-        $this->WriteAttributeFloat('RT_StartAT', (float)$this->ReadPropertyFloat('StartAT'));
-        $this->WriteAttributeFloat('RT_EndAT', (float)$this->ReadPropertyFloat('EndAT'));
+        // Initialize runtime attributes from properties - nur, was sich an den Eigenschaften geaendert hat
+        $this->TakeOverChangedProperties();
 
         // Alle bisherigen Nachrichten abmelden, auch IPS_KERNELSTARTED und eine frueher zugeordnete Variable
         $this->UnregisterAllMessages();
@@ -112,6 +120,35 @@ class TilVisuHeatingCurve extends IPSModuleStrict
             $this->UnregisterAllMessages();
         }
         parent::Destroy();
+    }
+
+    // Uebernimmt eine Kurven-Eigenschaft in ihren Laufzeitwert nur, wenn sie sich seit der letzten Uebernahme
+    // geaendert hat (Formular, IPS_SetProperty). ApplyChanges laeuft bei jedem Kernelstart, Modul-Reload und
+    // Uebernehmen; frueher setzte es dabei jedes Mal alle Laufzeitwerte auf die Eigenschaften zurueck, und die per
+    // ± verstellten Werte gingen verloren (MinVorlauf, MaxVorlauf, StartAT und EndAT stehen gar nicht im Formular).
+    private function TakeOverChangedProperties(): void
+    {
+        $properties = [];
+        foreach (array_keys(self::CURVE_PARAMETERS) as $property) {
+            $properties[$property] = $this->ReadPropertyFloat($property);
+        }
+        $stored = $this->ReadAttributeString('RT_Source');
+        $source = json_decode($stored, true);
+        if (!is_array($source)) {
+            // Noch keine Uebernahme gemerkt. Neue Instanz (Laufzeitwerte noch 0/0): alles uebernehmen. Stehen schon
+            // Laufzeitwerte da (der Stand davor schrieb sie bei jedem ApplyChanges), bleiben sie: sie koennen per ±
+            // verstellt sein.
+            $source = $this->ReadAttributeFloat('RT_MinVorlauf') < $this->ReadAttributeFloat('RT_MaxVorlauf') ? $properties : [];
+        }
+        foreach (self::CURVE_PARAMETERS as $property => $attribute) {
+            if (!isset($source[$property]) || !is_numeric($source[$property]) || abs((float)$source[$property] - $properties[$property]) > 1e-9) {
+                $this->WriteAttributeFloat($attribute, $properties[$property]);
+            }
+        }
+        $current = (string)json_encode($properties);
+        if ($current !== $stored) {
+            $this->WriteAttributeString('RT_Source', $current);
+        }
     }
 
     // Meldet jede registrierte Nachricht ab (GetMessageList), statt sich die zuletzt angemeldete Variable zu merken
