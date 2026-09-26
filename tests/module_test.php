@@ -186,6 +186,51 @@ function szenarien(): array
         $m->GetVisualizationTile();
         return $GLOBALS['writes'] === [];
     });
+
+    // Nachrichten und Referenzen
+    $zeile('VM_UPDATE only for the assigned outside temperature', false, static function (): bool {
+        return kachel()->messages === [100 => [VM_UPDATE]];
+    });
+    $zeile('Unassigned tile registers no VM_UPDATE (sender 0 would mean every object) and no reference', false, static function (): bool {
+        $m = new TilVisuHeatingCurve();
+        $m->Create();
+        $m->ApplyChanges();
+        return $m->messages === [] && $m->references === [];
+    });
+    $zeile('Another outside temperature variable moves the subscription', false, static function (): bool {
+        $m = kachel();
+        variable(102, 3.0);
+        $m->properties['Var_Aussentemperatur'] = 102;
+        $m->ApplyChanges();
+        return $m->messages === [102 => [VM_UPDATE]];
+    });
+    $zeile('After the kernel start no registration on sender 0 remains', false, static function (): bool {
+        variable(100, 5.0);
+        variable(101, 0.0);
+        $m = new TilVisuHeatingCurve();
+        $m->Create();
+        $m->properties['Var_Aussentemperatur'] = 100;
+        $m->properties['Var_SollVorlauf'] = 101;
+        $GLOBALS['runlevel'] = 0;
+        $m->ApplyChanges();
+        $GLOBALS['runlevel'] = KR_READY;
+        $m->MessageSink(0, 0, IPS_KERNELSTARTED, []);
+        return $m->messages === [100 => [VM_UPDATE]];
+    });
+    $zeile('Destroy unregisters the messages', false, static function (): bool {
+        $m = kachel();
+        $m->Destroy();
+        return $m->messages === [];
+    });
+    $zeile('References for both assigned variables, following the assignment', true, static function (): bool {
+        $m = kachel();
+        $vorher = array_keys($m->references);
+        variable(102, 3.0);
+        $m->properties['Var_Aussentemperatur'] = 102;
+        $m->properties['Var_SollVorlauf'] = 0;
+        $m->ApplyChanges();
+        return $vorher === [100, 101] && array_keys($m->references) === [102];
+    });
     return $zeilen;
 }
 

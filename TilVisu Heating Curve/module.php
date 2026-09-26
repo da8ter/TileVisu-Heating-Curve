@@ -20,9 +20,6 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         $this->RegisterPropertyInteger('Var_Aussentemperatur', 0);
         $this->RegisterPropertyInteger('Var_SollVorlauf', 0);
 
-        // Attributes to manage message subscriptions
-        $this->RegisterAttributeInteger('LastATVar', 0);
-
         // Attributes for runtime curve parameters (overridable via RequestAction)
         $this->RegisterAttributeFloat('RT_MinVorlauf', 0.0);
         $this->RegisterAttributeFloat('RT_MaxVorlauf', 0.0);
@@ -54,12 +51,8 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         $this->WriteAttributeFloat('RT_StartAT', (float)$this->ReadPropertyFloat('StartAT'));
         $this->WriteAttributeFloat('RT_EndAT', (float)$this->ReadPropertyFloat('EndAT'));
 
-        // Unregister previous message binding if present
-        $lastAT = $this->ReadAttributeInteger('LastATVar');
-        if ($lastAT > 0) {
-            // Unsubscribe from previous variable VM_UPDATE
-            $this->UnregisterMessage($lastAT, VM_UPDATE);
-        }
+        // Alle bisherigen Nachrichten abmelden, auch IPS_KERNELSTARTED und eine frueher zugeordnete Variable
+        $this->UnregisterAllMessages();
 
         // Validate curve parameters (read from runtime attributes)
         $minVL = $this->ReadAttributeFloat('RT_MinVorlauf');
@@ -90,12 +83,20 @@ class TilVisuHeatingCurve extends IPSModuleStrict
             $valid = false;
         }
 
-        // Register to VM_UPDATE of Außentemperatur variable
+        // Referenzen auf die zugeordneten Variablen (0 = nicht zugeordnet)
+        foreach ($this->GetReferenceList() as $reference) {
+            $this->UnregisterReference($reference);
+        }
+        foreach ([$varAT, $varVL] as $variableID) {
+            if ($variableID > 0) {
+                $this->RegisterReference($variableID);
+            }
+        }
+
+        // Register to VM_UPDATE of Außentemperatur variable. Nur zugeordnet: Absender 0 hiesse jedes Objekt,
+        // MessageSink liefe bei jeder Variablenaktualisierung im System.
         if ($varAT > 0) {
             $this->RegisterMessage($varAT, VM_UPDATE);
-            $this->WriteAttributeInteger('LastATVar', $varAT);
-        } else {
-            $this->WriteAttributeInteger('LastATVar', 0);
         }
 
         // Perform initial calculation and push visualization state
@@ -106,12 +107,19 @@ class TilVisuHeatingCurve extends IPSModuleStrict
     {
         // Clean up (only if kernel is ready; InstanceInterface may be unavailable during shutdown)
         if (IPS_GetKernelRunlevel() === KR_READY) {
-            $lastAT = $this->ReadAttributeInteger('LastATVar');
-            if ($lastAT > 0) {
-                $this->UnregisterMessage($lastAT, VM_UPDATE);
-            }
+            $this->UnregisterAllMessages();
         }
         parent::Destroy();
+    }
+
+    // Meldet jede registrierte Nachricht ab (GetMessageList), statt sich die zuletzt angemeldete Variable zu merken
+    private function UnregisterAllMessages(): void
+    {
+        foreach ($this->GetMessageList() as $senderID => $messageIDs) {
+            foreach ($messageIDs as $messageID) {
+                $this->UnregisterMessage($senderID, $messageID);
+            }
+        }
     }
 
     // Handle visualization actions from the HTML tile (idents: MinVL, MaxVL, MinAT, MaxAT, StartAT, EndAT)
