@@ -231,6 +231,48 @@ function szenarien(): array
         $m->ApplyChanges();
         return $vorher === [100, 101] && array_keys($m->references) === [102];
     });
+
+    // Nachrichtenfilter: eine Folge an derselben Kachel, gezaehlt werden die Nachrichten je Schritt.
+    // $Data wie von Symcon: [neuer Wert, geaendert, alter Wert, Zeitstempel]
+    $m = kachel(20100);
+    $schritt = static function (string $label, bool $neu, int $erwartet, callable $aktion) use ($m, &$zeilen): void {
+        $GLOBALS['runlevel'] = KR_READY;
+        $vorher = count($m->updates);
+        try {
+            $aktion();
+            $ist = count($m->updates) - $vorher;
+            $zeilen[] = [$label, $neu, $ist === $erwartet, $ist === $erwartet ? '' : $ist . ' messages'];
+        } catch (Throwable $e) {
+            $zeilen[] = [$label, $neu, false, get_class($e) . ': ' . $e->getMessage()];
+        }
+    };
+    $at = static function (float $wert, array $data) use ($m): callable {
+        return static function () use ($m, $wert, $data): void {
+            $GLOBALS['variables'][100]['value'] = $wert;
+            $m->MessageSink(0, 100, VM_UPDATE, $data);
+        };
+    };
+    $GLOBALS['variables'][101]['value'] = 40.0; // Soll-Vorlauf von anderer Stelle verstellt
+    $GLOBALS['writes'] = [];
+    $schritt('Update without a new value ($Data[1] false) sends nothing', true, 0, $at(5.0, [5.0, false, 5.0, 1]));
+    $zeilen[] = ['... and neither recalculates nor rewrites the target', true, $GLOBALS['writes'] === [], ''];
+    $schritt('Changed value ($Data[1] true) sends the new state', false, 1, $at(6.0, [6.0, true, 5.0, 2]));
+    // Das Modul liest den aktuellen Wert: nach schnellen Aenderungen ist der Zustand derselbe
+    $schritt('Identical state is not sent again', true, 0, $at(6.0, [6.0, true, 5.5, 3]));
+    $schritt('ApplyChanges sends the full state even when unchanged', false, 1, static fn () => $m->ApplyChanges());
+    $schritt('... after that an identical update is not repeated', true, 0, $at(6.0, [6.0, true, 5.5, 4]));
+    // Erstaufbau ausserhalb der Zaehlung (der Vorgaenger schickte dabei selbst eine Nachricht an alle)
+    try {
+        $m->GetVisualizationTile();
+    } catch (Throwable $e) {
+        $zeilen[] = ['Initial build of a tile', false, false, get_class($e) . ': ' . $e->getMessage()];
+    }
+    $schritt('After the initial build of a tile the next update goes out again', false, 1, $at(6.0, [6.0, true, 5.5, 5]));
+    $schritt('... but only once', true, 0, $at(6.0, [6.0, true, 5.5, 6]));
+    $schritt('Without $Data[1] (other format) the update is handled', false, 1, $at(7.0, []));
+    $schritt('± action sends the new state', false, 1, static fn () => $m->RequestAction('StartAT', 10));
+    $schritt('± at a limit without change sends nothing (the tile shows nothing optimistically)', true, 0,
+        static fn () => $m->RequestAction('StartAT', 1));
     return $zeilen;
 }
 

@@ -99,7 +99,9 @@ class TilVisuHeatingCurve extends IPSModuleStrict
             $this->RegisterMessage($varAT, VM_UPDATE);
         }
 
-        // Perform initial calculation and push visualization state
+        // Perform initial calculation and push visualization state. Nach einer Aenderung geht der volle Zustand
+        // hinaus, auch wenn er dem zuletzt gesendeten gleicht: die Pruefwerte gelten nicht mehr.
+        $this->SetBuffer('UpdateHashes', '');
         $this->RecalculateAndPush($valid);
     }
 
@@ -195,7 +197,9 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         $this->WriteAttributeFloat('RT_StartAT', $startAT);
         $this->WriteAttributeFloat('RT_EndAT', $endAT);
 
-        // Push the new values to the tile first, then write the target flow temperature (may take a while)
+        // Push the new values to the tile first, then write the target flow temperature (may take a while).
+        // Die Kachel zeigt nicht optimistisch an (ein Klick schickt nur requestAction, die Anzeige folgt der
+        // Nachricht des Moduls): ein unveraenderter Zustand, etwa an einer Grenze, braucht keine Korrektur.
         $state = $this->BuildState(true);
         $this->SendState($state);
 
@@ -214,9 +218,20 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         }
 
         if ($Message === VM_UPDATE && $SenderID === (int)$this->ReadPropertyInteger('Var_Aussentemperatur')) {
+            // Symcon meldet jede Aktualisierung, auch ohne neuen Wert: dann bleibt alles, wie es ist
+            if (!self::ValueChanged($Data)) {
+                return;
+            }
             $this->SendDebug('Event', 'VM_UPDATE from Außentemperatur', 0);
             $this->RecalculateAndPush(true);
         }
+    }
+
+    // Symcon meldet mit VM_UPDATE jede Aktualisierung; $Data[1] sagt, ob sich der Wert geaendert hat.
+    // Fehlt die Angabe (anderes Format), gilt sie als Aenderung: lieber senden als eine verschlucken.
+    private static function ValueChanged(array $Data): bool
+    {
+        return !isset($Data[1]) || (bool)$Data[1];
     }
 
     private function RecalculateAndPush(bool $configValid): void
@@ -282,7 +297,25 @@ class TilVisuHeatingCurve extends IPSModuleStrict
             $this->SendDebug('SendState', 'State not encodable: ' . json_last_error_msg(), 0);
             return;
         }
-        $this->UpdateVisualizationValue($json);
+        // Ein unveraenderter Zustand geht kein zweites Mal hinaus
+        $this->SendUpdateIfChanged('State', $json);
+    }
+
+    // Schickt die Nachrichten eines Schluessels nur, wenn sie sich von den zuletzt dazu gesendeten unterscheiden.
+    // Die Pruefwerte (md5) stehen im Puffer UpdateHashes; ApplyChanges und der Erstaufbau leeren ihn.
+    private function SendUpdateIfChanged(string $key, string ...$messages): void
+    {
+        $hashes = json_decode($this->GetBuffer('UpdateHashes'), true);
+        $hashes = is_array($hashes) ? $hashes : [];
+        $hash = md5(serialize($messages));
+        if (($hashes[$key] ?? null) === $hash) {
+            return;
+        }
+        foreach ($messages as $message) {
+            $this->UpdateVisualizationValue($message);
+        }
+        $hashes[$key] = $hash;
+        $this->SetBuffer('UpdateHashes', (string)json_encode($hashes));
     }
 
     private function WriteTargetIfChanged(int $varID, float $value): void
@@ -409,6 +442,8 @@ class TilVisuHeatingCurve extends IPSModuleStrict
         // bei jedem Oeffnen irgendeiner Kachel, und die sich oeffnende Kachel fragte bis zu 50-mal per Init nach.
         // Derselbe Zustand wie bei jeder Aktualisierung (Laufzeitwerte RT_*), ohne den Soll-Vorlauf zu schreiben.
         // Der JSON-Text steht als JS-Stringliteral da; JSON_HEX_TAG: kein </script> aus einem Wert im Skriptblock.
+        // Erstaufbau: danach geht die naechste Aktualisierung wieder hinaus, auch wenn sie der letzten gleicht.
+        $this->SetBuffer('UpdateHashes', '');
         $state = json_encode($this->BuildState(true));
         if ($state === false) {
             $this->SendDebug('GetVisualizationTile', 'State not encodable: ' . json_last_error_msg(), 0);
