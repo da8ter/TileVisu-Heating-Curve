@@ -568,13 +568,20 @@
     });
   });
 
+  // Nur ein Zustand des Moduls: das HTML-SDK reicht JEDE postMessage an handleMessage weiter
+  const istZustand = (p) => !!p && typeof p === 'object' && !Array.isArray(p)
+    && ['MinVorlauf', 'MaxVorlauf', 'MinAT', 'MaxAT'].every((k) => typeof p[k] === 'number');
+
   // HTML-SDK entry point for live updates
   window.handleMessage = function(payload){
+    let p;
     try {
-      const p = (typeof payload === 'string') ? JSON.parse(payload) : payload;
-      setVals(p);
+      p = (typeof payload === 'string') ? JSON.parse(payload) : payload;
     } catch (e) {
-      console.error('handleMessage parse error', e);
+      return; // kein JSON, also keine Nachricht des Moduls
+    }
+    if (istZustand(p)) {
+      setVals(p);
     }
   };
 
@@ -582,21 +589,7 @@
   window.UpdateVisualizationValue = function(payload){
     window.handleMessage(payload);
   };
-
-  // Listen for messages from backend (UpdateVisualizationValue -> postMessage)
-  window.addEventListener('message', (ev)=>{
-    try {
-      const d = ev.data;
-      if (d === undefined || d === null) return;
-      // Heuristics: accept both JSON string and object
-      const p = (typeof d === 'string') ? JSON.parse(d) : d;
-      if (p && (typeof p === 'object')) {
-        window.handleMessage(p);
-      }
-    } catch(e) {
-      // ignore malformed messages
-    }
-  });
+  // Kein eigener message-Listener: den hat das HTML-SDK schon, jede Nachricht kam sonst doppelt an
 
   // Den Anfangszustand haengt GetVisualizationTile als handleMessage-Aufruf hinter dieses Skript: kein
   // Nachfragen beim Modul mehr. Neue Kachelgroesse: mit dem letzten Stand neu zeichnen, statt bis zur

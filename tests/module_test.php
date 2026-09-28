@@ -448,6 +448,24 @@ if ($nodeCode !== 0) {
     }
 }
 
+echo '--- Nur Zustaende des Moduls, jede Nachricht einmal' . PHP_EOL;
+$html = (string) file_get_contents(dirname((string) (new ReflectionClass(TilVisuHeatingCurve::class))->getFileName()) . '/module.html');
+check(!str_contains($html, "addEventListener('message'"), 'No own message listener: the HTML SDK already passes every message to handleMessage');
+if ($nodeCode !== 0) {
+    echo 'SKIP: node not available' . PHP_EOL;
+} elseif (!preg_match('~const istZustand = (.*?);\n~s', $html, $treffer)) {
+    check(false, 'handleMessage checks the shape of a message (istZustand)');
+} else {
+    $js = 'const istZustand = ' . $treffer[1] . ";\n"
+        . 'const f = [{MinVorlauf: 25, MaxVorlauf: 55, MinAT: -10, MaxAT: 15, AT: null}, {}, [], null, "x", {MinVorlauf: "25", MaxVorlauf: 55, MinAT: -10, MaxAT: 15}];'
+        . 'console.log(JSON.stringify(f.map(istZustand)));';
+    $datei = sys_get_temp_dir() . '/tvhc-form-' . bin2hex(random_bytes(6)) . '.js';
+    file_put_contents($datei, $js);
+    $ergebnis = trim((string) shell_exec('node ' . escapeshellarg($datei) . ' 2>&1'));
+    unlink($datei);
+    check($ergebnis === '[true,false,false,false,false,false]', 'Only a module state (numeric curve values) is drawn, other messages are ignored [' . $ergebnis . ']');
+}
+
 echo '--- Szenarien' . PHP_EOL;
 $zeilen = szenarien();
 foreach ($zeilen as [$label, $neu, $ok, $fehler]) {
