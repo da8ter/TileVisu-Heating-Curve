@@ -32,4 +32,4 @@ git diff --check
 
 ## Wissen
 
-Gemeinsames Symcon-Plattformwissen (Lebenszyklus, Timer, Kachel-Nachrichten): https://github.com/da8ter/SymDo-Family-Organizer/tree/SymDo-Beta/docs/plattform – lokal `../List/docs/plattform/`. Die Begründungen der Kachel-Umbauten stehen ausführlich in den Commit-Botschaften (`git log`). Symcon-Fragen am offiziellen Handbuch prüfen.
+Gemeinsames Symcon-Plattformwissen (Lebenszyklus, Timer, Kachel-Nachrichten): https://github.com/da8ter/SymDo-Family-Organizer/tree/SymDo-Beta/.claude/docs/plattform – lokal `../List/.claude/docs/plattform/`. Die Begründungen der Kachel-Umbauten stehen ausführlich in den Commit-Botschaften (`git log`). Symcon-Fragen am offiziellen Handbuch prüfen.
